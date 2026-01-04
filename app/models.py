@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
 from app.database import Base
 from sqlalchemy.orm import relationship
 
@@ -15,6 +15,10 @@ class User(Base):
 class DailyLog(Base):
     __tablename__ = "daily_logs"
 
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_user_daily_log"),
+    )
+
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, index=True)
     date = Column(Date)
@@ -28,6 +32,14 @@ class DailyLog(Base):
         Numeric(5, 2), nullable=False
     ) 
     notes = Column(Text)
+
+class MonthlyAnalytics(Base):
+    __tablename__ = "monthly_analytics"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)
+    month = Column(String, index=True)
+    summary = Column(JSON)
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"

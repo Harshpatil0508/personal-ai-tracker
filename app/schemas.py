@@ -12,7 +12,7 @@ class UserLogin(BaseModel):
     password: str
     
 class DailyLogCreate(BaseModel):
-    date: date
+    # date: date
     work_hours: float
     study_hours: float
     sleep_hours: float
@@ -21,3 +21,7 @@ class DailyLogCreate(BaseModel):
         ..., ge=0, le=100, description="Goal completion percentage (0-100)"
     )
     notes: str
+
+class MonthlyAnalyticsResponse(BaseModel):
+    month: str
+    summary: dict

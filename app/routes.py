@@ -2,12 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
 from sqlalchemy.orm import Session
 from hashlib import sha256
 from app.database import SessionLocal
-from app.models import DailyLog, User, RefreshToken
-from app.schemas import DailyLogCreate, UserCreate, UserLogin
+from app.models import DailyLog, User, RefreshToken, MonthlyAnalytics
+from datetime import datetime
+from app.analytics import generate_monthly_summary
+from app.schemas import DailyLogCreate, UserCreate, UserLogin, MonthlyAnalyticsResponse
 from app.auth import hash_password, verify_password, create_access_token, create_refresh_token
 from app.dependencies import get_current_user,require_role, get_current_user_id
 from app.config import JWT_SECRET
 from jose import jwt, JWTError
+from sqlalchemy import func
 
 router = APIRouter()
 
@@ -80,8 +83,22 @@ def create_daily_log(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
+    today = datetime.today().date()
+    print(today)
+    exists = db.query(DailyLog).filter(
+        DailyLog.user_id == user_id,
+        DailyLog.date == today
+    ).first()
+    print(exists)
+    if exists:
+        raise HTTPException(
+            status_code=400,
+            detail="Daily log for today already exists"
+        )
+
     entry = DailyLog(
         user_id=user_id,
+        date=today,
         **log.model_dump()
     )
 
@@ -89,7 +106,10 @@ def create_daily_log(
     db.commit()
     db.refresh(entry)
 
-    return {"message": "Daily log saved successfully"}
+    return {
+        "message": "Daily log saved successfully",
+        "id": entry.id
+    }
 
 @router.get("/admin/dashboard")
 def admin_dashboard(
@@ -115,10 +135,67 @@ def logout(
     return {"message": "Logged out successfully"}
 
 
-# from fastapi import Cookie
-# from jose import jwt, JWTError
-# from hashlib import sha256
-# from app.config import JWT_SECRET
+@router.get("/analytics/monthly", response_model=MonthlyAnalyticsResponse)
+def get_monthly_analytics(
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    today = datetime.today()
+    month_key = today.strftime("%Y-%m")
+
+    # Check if already generated
+    analytics = (
+        db.query(MonthlyAnalytics)
+        .filter(
+            MonthlyAnalytics.user_id == user_id,
+            MonthlyAnalytics.month == month_key
+        )
+        .first()
+    )
+
+    if analytics:
+        return {
+            "month": month_key,
+            "summary": analytics.summary
+        }
+
+    # Fetch daily logs
+    logs = (
+        db.query(DailyLog)
+        .filter(DailyLog.user_id == user_id)
+        .all()
+    )
+
+    logs_data = [
+        {
+            "work_hours": l.work_hours,
+            "study_hours": l.study_hours,
+            "sleep_hours": l.sleep_hours,
+            "goal_completed": l.goal_completed_percentage,
+            "mood_score": l.mood_score,
+        }
+        for l in logs
+    ]
+
+    summary = generate_monthly_summary(logs_data)
+
+    if not summary:
+        raise HTTPException(status_code=400, detail="Not enough data")
+
+    analytics = MonthlyAnalytics(
+        user_id=user_id,
+        month=month_key,
+        summary=summary
+    )
+
+    db.add(analytics)
+    db.commit()
+
+    return {
+        "month": month_key,
+        "summary": summary
+    }
+
 
 @router.post("/refresh")
 def refresh(
