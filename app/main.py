@@ -1,9 +1,9 @@
 from fastapi import FastAPI
-from app.database import engine, Base
-from app.routes import router
+from app.routers import auth, logs, analytics, admin
 
-# Base.metadata.create_all(bind=engine)
+app = FastAPI()
 
-app = FastAPI(title="Personal AI Tracker")
-
-app.include_router(router)
+app.include_router(auth.router)
+app.include_router(logs.router)
+app.include_router(analytics.router)
+app.include_router(admin.router)
