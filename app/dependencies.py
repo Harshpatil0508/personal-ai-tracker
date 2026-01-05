@@ -35,6 +35,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token"
         )
+    
 def get_current_user_id(user=Depends(get_current_user)) -> int:
     return user["user_id"]
 

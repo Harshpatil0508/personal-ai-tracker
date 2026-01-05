@@ -7,7 +7,7 @@ from datetime import datetime
 from app.analytics import generate_monthly_summary
 from app.schemas import DailyLogCreate, UserCreate, UserLogin, MonthlyAnalyticsResponse
 from app.auth import hash_password, verify_password, create_access_token, create_refresh_token
-from app.dependencies import get_current_user,require_role, get_current_user_id
+from app.dependencies import require_role, get_current_user_id
 from app.config import JWT_SECRET
 from jose import jwt, JWTError
 from sqlalchemy import func
@@ -20,6 +20,10 @@ def get_db():
         yield db
     finally:
         db.close()
+
+@router.get("/")
+def read_root():
+    return {"message": "Personal Tracker API is running"}
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
