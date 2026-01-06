@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from hashlib import sha256
 from jose import jwt, JWTError
 
+from app.dependencies import get_current_user_id
 from app.models import User, RefreshToken
 from app.schemas import UserCreate, UserLogin
 from app.auth import hash_password, verify_password, create_access_token, create_refresh_token
@@ -38,7 +39,7 @@ def login(user: UserLogin, response: Response, db: Session = Depends(get_db)):
     if not db_user or not verify_password(user.password, db_user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    access_token = create_access_token(db_user.id, db_user.role)
+    access_token = create_access_token(db_user.id, db_user.role, db_user.token_version)
     refresh_token, token_hash, expires_at = create_refresh_token(db_user.id)
 
     db.add(RefreshToken(
@@ -104,14 +105,30 @@ def refresh(response: Response, refresh_token: str = Cookie(None), db: Session =
 
 
 @router.post("/logout")
-def logout(response: Response, refresh_token: str = Cookie(None), db: Session = Depends(get_db)):
+def logout(
+    response: Response,
+    refresh_token: str = Cookie(None),
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).get(user_id)
+    
+    if user.token_version is None:
+        user.token_version = 0
+
+    # Invalidate ALL existing tokens
+    user.token_version += 1
+
     if refresh_token:
         token_hash = sha256(refresh_token.encode()).hexdigest()
         db.query(RefreshToken).filter(
             RefreshToken.token_hash == token_hash
         ).delete()
-        db.commit()
-    # print("Clearing cookies")
+
+    db.commit()
+
+    # Clear refresh token cookie
     response.delete_cookie("refresh_token", path="/auth/refresh")
-    # print(response.raw_headers)
+
     return {"message": "Logged out successfully"}
+
