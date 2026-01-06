@@ -10,6 +10,7 @@ class User(Base):
     name = Column(String)
     password_hash = Column(String)
     role = Column(String, default="user")  # user | admin
+    token_version = Column(Integer, default=1)
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete")
 
 class DailyLog(Base):
