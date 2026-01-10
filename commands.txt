@@ -1,3 +1,9 @@
+git clone https://github.com/Harshpatil0508/personal-ai-tracker
+
+python -m venv myvenv   # Activate the virtual environment after creating then go with next commands
+
+pip install -r requirements.txt
+
 uvicorn app.main:app --reload
 
 celery -A app.celery_app worker -l info
