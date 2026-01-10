@@ -1,11 +1,42 @@
+Clone the repository:
+
 git clone https://github.com/Harshpatil0508/personal-ai-tracker
+cd personal-ai-tracker
 
-python -m venv myvenv   # Activate the virtual environment after creating then go with next commands
 
+Create and activate a virtual environment:
+
+python -m venv myvenv
+myvenv\Scripts\activate
+
+Install dependencies:
 pip install -r requirements.txt
+
+
+Environment configuration:
+
+DATABASE_URL=postgresql+psycopg2://user:password@localhost/dbname
+REDIS_URL=redis://localhost:6379/0
+SECRET_KEY=your_secret_key
+
+Database Migrations (Alembic):
+
+alembic init alembic
+alembic revision --autogenerate -m "initial"
+alembic upgrade head
+
+
+Start the FastAPI server:
 
 uvicorn app.main:app --reload
 
+
+Optional : 
+
+Start Celery worker:
+
 celery -A app.celery_app worker -l info
+
+Start Celery beat (scheduler):
 
 celery -A app.celery_app beat -l info
