@@ -7,7 +7,7 @@ __pycache__/
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
+*.pyd 
 # C extensions
 *.so
 
