@@ -1,11 +1,17 @@
-from datetime import datetime
+from calendar import monthrange
+from datetime import date, datetime, timezone
 
-from sqlalchemy import distinct
+import json
+import logging
+from sqlalchemy import distinct, exists
+from app.ai import generate_daily_motivation, generate_monthly_review
 from app.celery_app import celery
 from app.database import SessionLocal
-from app.models import DailyLog, MonthlyAnalytics
+from app.models import DailyAIMotivation, DailyLog, MonthlyAIReview, MonthlyAnalytics
 from app.analytics import generate_monthly_summary
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # -------- DAILY JOB --------
 
@@ -13,84 +19,177 @@ from app.analytics import generate_monthly_summary
 def daily_job(self):
     """
     Runs every day at midnight.
-    Currently validates daily automation.
+    Generates daily AI motivation for users based on recent logs.
     """
-    db = SessionLocal()
+    logger.info("[DAILY JOB] Starting daily motivation job")
+    with SessionLocal() as db:
+        try:
+            # Fetch users who have daily logs
+            users = db.query(distinct(DailyLog.user_id)).all()
 
-    try:
-        users = db.query(distinct(DailyLog.user_id)).all()
+            for (user_id,) in users:
+                logs = (
+                    db.query(DailyLog)
+                    .filter(DailyLog.user_id == user_id)
+                    .order_by(DailyLog.date.desc())
+                    .limit(5)
+                    .all()
+                )
 
-        for user in users:
-            user_id = user[0]
-            # Future: daily motivation / reminders
-            print(f"[DAILY JOB] Processed user {user_id}")
+                if not logs:
+                    logger.info(f"[DAILY JOB] No logs for user {user_id}, skipping")
+                    continue
+                # Check if motivation already exists for today
+                exists_today = db.query(DailyAIMotivation).filter(
+                        DailyAIMotivation.user_id == user_id,
+                        DailyAIMotivation.date == date.today()
+                ).first()
+                if exists_today:
+                    logger.info(f"[DAILY JOB] Motivation already exists for user {user_id}, skipping.")
+                    continue
+                # Prepare context safely
+                goal_completed_yesterday = (
+                    logs[0].goal_completed_percentage if logs[0].goal_completed_percentage is not None else 0
+                )
+                avg_mood = round(
+                    sum(log.mood_score or 0 for log in logs) / len(logs), 2
+                )
+                avg_sleep = round(
+                    sum(log.sleep_hours or 0 for log in logs) / len(logs), 2
+                )
+                avg_work = round(
+                    sum(log.work_hours or 0 for log in logs) / len(logs), 2
+                )
+                avg_study = round(
+                    sum(log.study_hours or 0 for log in logs) / len(logs), 2
+                )
 
-    finally:
-        db.close()
+                context = {
+                    "missed_yesterday": goal_completed_yesterday < 100,
+                    "avg_mood": avg_mood,
+                    "consistency_days": len(logs),
+                    "avg_sleep_hours": avg_sleep,
+                    "avg_work_hours": avg_work,
+                    "avg_study_hours": avg_study,
+                }
+
+                # Generate AI motivation
+                try:
+                    message = generate_daily_motivation(context)
+                except Exception as e:
+                    logger.error(f"[DAILY JOB] AI generation failed for user {user_id}: {e}")
+                    continue
+
+                # Save motivation
+                try:
+                    db.add(
+                        DailyAIMotivation(
+                            user_id=user_id,
+                            date=date.today(),
+                            message=message
+                        )
+                    )
+                    db.commit()
+                    logger.info(f"[DAILY JOB] Saved motivation for user {user_id}")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"[DAILY JOB] Failed to save motivation for user {user_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"[DAILY JOB] Unexpected error: {e}")
+
+    logger.info("[DAILY JOB] Completed daily motivation job")
 
 
-# -------- MONTHLY JOB --------
+# -------- MONTHLY AI REVIEW  JOB --------
 
 @celery.task(bind=True, autoretry_for=(Exception,), retry_kwargs={"max_retries": 3, "countdown": 60})
 def monthly_job(self):
     """
-    Runs on the 1st of every month.
-    Generates monthly analytics.
+    Runs at the start of each month to generate structured AI review for last month.
     """
-    db = SessionLocal()
-    current_month = datetime.today().strftime("%Y-%m")
+    logger.info("[MONTHLY AI REVIEW] Starting monthly AI review job")
+    with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        current_month_str = now.strftime("%Y-%m")
+        year, month = now.year, now.month
 
-    try:
-        users = db.query(distinct(DailyLog.user_id)).all()
+        start_date = datetime(year, month, 1).date()
+        end_date = datetime(year, month, monthrange(year, month)[1]).date()
 
-        for user in users:
-            user_id = user[0]
-            logs = (
-                db.query(DailyLog)
-                .filter(DailyLog.user_id == user_id)
+        try:
+            # Users with logs in the current month only
+            users = (
+                db.query(DailyLog.user_id)
+                .filter(DailyLog.date.between(start_date, end_date))
+                .distinct()
                 .all()
             )
 
-            # Minimum data requirement
-            if len(logs) < 7:
-                continue
-
-            logs_data = [
-                {
-                    "work_hours": log.work_hours,
-                    "study_hours": log.study_hours,
-                    "sleep_hours": log.sleep_hours,
-                    "goal_completed": log.goal_completed,
-                    "mood_score": log.mood_score,
-                }
-                for log in logs
-            ]
-
-            summary = generate_monthly_summary(logs_data)
-
-            if not summary:
-                continue
-
-            exists = (
-                db.query(MonthlyAnalytics)
-                .filter(
-                    MonthlyAnalytics.user_id == user_id,
-                    MonthlyAnalytics.month == current_month,
-                )
-                .first()
-            )
-
-            if not exists:
-                db.add(
-                    MonthlyAnalytics(
-                        user_id=user_id,
-                        month=current_month,
-                        summary=summary,
+            for (user_id,) in users:
+                logs = (
+                    db.query(DailyLog)
+                    .filter(
+                        DailyLog.user_id == user_id,
+                        DailyLog.date.between(start_date, end_date)
                     )
+                    .order_by(DailyLog.date)
+                    .all()
                 )
-                db.commit()
 
-                print(f"[MONTHLY JOB] Analytics generated for user {user.user_id}")
+                if len(logs) < 10:
+                    logger.info(f"[MONTHLY AI REVIEW] Skipping user {user_id}, not enough logs ({len(logs)})")
+                    continue
 
-    finally:
-        db.close()
+                # Check if review already exists
+                exists_review = db.query(
+                    exists().where(
+                        (MonthlyAIReview.user_id == user_id) &
+                        (MonthlyAIReview.month == current_month_str)
+                    )
+                ).scalar()
+
+                if exists_review:
+                    logger.info(f"[MONTHLY AI REVIEW] Review already exists for user {user_id}")
+                    continue
+
+                # Build timeline safely
+                timeline = [
+                    {
+                        "date": log.date.isoformat(),
+                        "work_hours": log.work_hours or 0,
+                        "study_hours": log.study_hours or 0,
+                        "sleep_hours": log.sleep_hours or 0,
+                        "mood_score": log.mood_score or 0,
+                        "goal_completion": float(log.goal_completed_percentage or 0),
+                    }
+                    for log in logs
+                ]
+
+                try:
+                    # Generate AI review
+                    review_dict = generate_monthly_review({
+                        "month": current_month_str,
+                        "timeline": timeline
+                    })
+                    review_json_str = json.dumps(review_dict, ensure_ascii=False)
+
+                    db.add(
+                        MonthlyAIReview(
+                            user_id=user_id,
+                            month=current_month_str,
+                            content=review_json_str,
+                            created_at=datetime.now(timezone.utc)
+                        )
+                    )
+                    db.commit()
+                    logger.info(f"[MONTHLY AI REVIEW] Generated review for user {user_id}")
+
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"[MONTHLY AI REVIEW] Failed for user {user_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"[MONTHLY AI REVIEW] Unexpected error: {e}")
+
+    logger.info("[MONTHLY AI REVIEW] Completed monthly AI review job")

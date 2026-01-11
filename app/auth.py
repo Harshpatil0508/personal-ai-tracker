@@ -14,6 +14,8 @@ pwd_context = CryptContext(
 )
 
 def hash_password(password: str) -> str:
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("Password too long (max 72 bytes)")
     return pwd_context.hash(password)
 
 def verify_password(password: str, hashed: str) -> bool:
