@@ -72,7 +72,7 @@ def get_daily_log_by_date(
     ).first()
 
     if not log:
-        raise HTTPException(status_code=400, detail="No daily log found for this date: "+logDate)
+        raise HTTPException(status_code=400, detail=f"No daily log found for date {logDate}") # Changed detail message to include date
 
     return log
 
