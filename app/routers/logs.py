@@ -7,7 +7,7 @@ from app.dependencies import get_current_user_id
 from app.db import get_db
 router = APIRouter(prefix="/daily-logs", tags=["Daily Logs"])
 
-
+# Create daily log
 @router.post("/")
 def create_daily_log(
     log: DailyLogCreate,
@@ -41,7 +41,8 @@ def create_daily_log(
         "message": "Daily log saved successfully",
         "id": entry.id
     }
-    
+
+# Fetch today's log
 @router.get("/today")
 def get_daily_log(
     user_id: int = Depends(get_current_user_id),
@@ -58,9 +59,10 @@ def get_daily_log(
 
     return get_daily_log_by_date(today,user_id,db)
  
-@router.get("/{logDate}")
+# Fetch log by date
+@router.get("/by-date/{logDate}")
 def get_daily_log_by_date(
-    logDate= date,
+    logDate: date,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -73,8 +75,9 @@ def get_daily_log_by_date(
         raise HTTPException(status_code=400, detail="No daily log found for this date: "+logDate)
 
     return log
-    
-@router.get("/all")
+
+# Fetch all logs
+@router.get("/all-logs")
 def get_all_daily_log(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
@@ -89,6 +92,7 @@ def get_all_daily_log(
 
     return log
 
+# Delete today's log
 @router.delete("/today")
 def delete_daily_log(
     user_id: int = Depends(get_current_user_id),
@@ -97,7 +101,8 @@ def delete_daily_log(
     today = datetime.today().date()
     return delete_daily_log_by_date(today,user_id,db)
 
-@router.delete("/{logDate}")
+# Delete log by date
+@router.delete("/by-date/{logDate}") # Changed the path to avoid conflict with /all
 def delete_daily_log_by_date(
     logDate : date,
     user_id: int = Depends(get_current_user_id),
@@ -116,6 +121,7 @@ def delete_daily_log_by_date(
 
     return {"message": "Daily log deleted successfully"}
 
+# Update today's log
 @router.patch("/today")
 def update_today_log(
     payload: DailyLogUpdate,
@@ -125,7 +131,8 @@ def update_today_log(
     today = datetime.today().date()
     return update_log_by_date(today, payload, user_id, db)
 
-@router.patch("/{log_date}")
+# Update log by date
+@router.patch("/by-date/{log_date}")
 def update_log_by_date(
     log_date: date,
     payload: DailyLogUpdate,
@@ -151,7 +158,8 @@ def update_log_by_date(
         "log": log
     }
 
-@router.delete("/all")
+# Delete all logs
+@router.delete("/all-logs")
 def delete_all_daily_log(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
