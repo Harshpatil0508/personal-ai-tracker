@@ -51,26 +51,14 @@ def daily_job(self):
                 goal_completed_yesterday = (
                     logs[0].goal_completed_percentage if logs[0].goal_completed_percentage is not None else 0
                 )
-                avg_mood = round(
-                    sum(log.mood_score or 0 for log in logs) / len(logs), 2
-                )
-                avg_sleep = round(
-                    sum(log.sleep_hours or 0 for log in logs) / len(logs), 2
-                )
-                avg_work = round(
-                    sum(log.work_hours or 0 for log in logs) / len(logs), 2
-                )
-                avg_study = round(
-                    sum(log.study_hours or 0 for log in logs) / len(logs), 2
-                )
-
+                
                 context = {
                     "missed_yesterday": goal_completed_yesterday < 100,
-                    "avg_mood": avg_mood,
+                    "avg_mood": round(sum(log.mood_score or 0 for log in logs) / len(logs), 2),
                     "consistency_days": len(logs),
-                    "avg_sleep_hours": avg_sleep,
-                    "avg_work_hours": avg_work,
-                    "avg_study_hours": avg_study,
+                    "avg_sleep_hours": round(sum(log.sleep_hours or 0 for log in logs) / len(logs), 2),
+                    "avg_work_hours": round(sum(log.work_hours or 0 for log in logs) / len(logs), 2),
+                    "avg_study_hours": round(sum(log.study_hours or 0 for log in logs) / len(logs), 2),
                 }
 
                 # Generate AI motivation
