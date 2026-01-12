@@ -1,12 +1,12 @@
 import json
+import logging
 from groq import Groq
 from app.config import GROQ_API_KEY
 
-client = Groq(api_key=GROQ_API_KEY)
-import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+client = Groq(api_key=GROQ_API_KEY)
 
 # -------- DAILY MOTIVATION --------
 
@@ -22,6 +22,13 @@ User context (last few days):
 {context}
 
 Rules:
+- Never ask questions
+- No clichés
+- Be specific to the user's data
+- Never give generic advice
+- The message must be uplifting and motivating
+- Never judge or criticize
+- Never ask why
 - No toxic positivity
 - No medical advice
 - Max 2 lines
