@@ -39,6 +39,7 @@ def daily_job(self):
                 if not logs:
                     logger.info(f"[DAILY JOB] No logs for user {user_id}, skipping")
                     continue
+
                 # Check if motivation already exists for today
                 exists_today = db.query(DailyAIMotivation).filter(
                         DailyAIMotivation.user_id == user_id,
@@ -104,6 +105,7 @@ def monthly_job(self):
 
         start_date = datetime(year, month, 1).date()
         end_date = datetime(year, month, monthrange(year, month)[1]).date()
+        logger.info(f"[MONTHLY AI REVIEW] Processing logs from {start_date} to {end_date}")
 
         try:
             # Users with logs in the current month only
