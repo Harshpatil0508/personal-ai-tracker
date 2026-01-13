@@ -1,4 +1,5 @@
 from datetime import datetime,timezone
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
 from app.database import Base
 from sqlalchemy.orm import relationship
@@ -97,4 +98,42 @@ class MonthlyAIReview(Base):
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
+    )
+
+class AIEmbedding(Base):
+    __tablename__ = "ai_embeddings"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "source", "source_id",
+            name="uq_user_source_embedding"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # What kind of text produced this embedding
+    source = Column(
+        String,
+        nullable=False
+    )  # daily_motivation | monthly_review | daily_log | custom_note
+
+    # ID of the source row (daily_ai_motivation.id, monthly_ai_reviews.id, etc.)
+    source_id = Column(Integer, nullable=False)
+
+    content = Column(Text, nullable=False)
+
+    embedding = Column(Vector(1536), nullable=False)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True
     )
