@@ -20,7 +20,7 @@ def generate_monthly_summary(daily_logs):
         "total_days_logged": len(df)
     }
 
-    # Trend detection
+    # Trend detection (simple & explainable)
     if len(df) >= 7:
         first_half = df.iloc[:len(df)//2]
         second_half = df.iloc[len(df)//2:]
