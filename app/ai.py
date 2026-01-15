@@ -2,6 +2,7 @@ import json
 import logging
 from groq import Groq
 from app.config import GROQ_API_KEY
+from app.vector_search import semantic_search
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -10,13 +11,15 @@ client = Groq(api_key=GROQ_API_KEY)
 
 # -------- DAILY MOTIVATION --------
 
-def generate_daily_motivation(context: dict) -> str:
-    """
-    Generates a short daily motivational message based on user context.
-    Always returns a string; returns fallback if AI fails.
-    """
+def generate_daily_motivation(context: dict, user_id: int) -> str:
+    memory = semantic_search(
+        user_id,
+        query="recent struggles and motivation"
+    )
     prompt = f"""
 You are a calm, supportive personal coach.
+User memory:
+{memory}
 
 User context (last few days):
 {context}
@@ -31,7 +34,7 @@ Rules:
 - Never ask why
 - No toxic positivity
 - No medical advice
-- Max 2 lines
+- Max 3 lines (strict with this rule)
 - Be practical and human
 """
 
@@ -45,21 +48,15 @@ Rules:
 
 # -------- MONTHLY IN-DEPTH REVIEW --------
 
-def generate_monthly_review(summary: dict) -> dict:
-    """
-    Generate a structured monthly AI review for a user.
-    Always returns a dict, even if AI fails.
-
-    Returns a dict:
-    {
-        "patterns": str,
-        "root_causes": str,
-        "recommendations": [str, str, str],
-        "notable": str
-    }
-    """
+def generate_monthly_review(summary: dict, user_id: int) -> dict:
+    memory = semantic_search(
+        user_id,
+        query="previous productivity patterns and improvements"
+    )
     prompt = f"""
 You are a behavioral analyst AI.
+Past insights:
+{memory}
 
 User monthly timeline:
 {summary}

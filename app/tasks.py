@@ -7,8 +7,8 @@ from sqlalchemy import distinct, exists
 from app.ai import generate_daily_motivation, generate_monthly_review
 from app.celery_app import celery
 from app.database import SessionLocal
-from app.models import DailyAIMotivation, DailyLog, MonthlyAIReview, MonthlyAnalytics
-from app.analytics import generate_monthly_summary
+from app.models import DailyAIMotivation, DailyLog, MonthlyAIReview
+from app.vector_store import store_embedding
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -64,21 +64,29 @@ def daily_job(self):
 
                 # Generate AI motivation
                 try:
-                    message = generate_daily_motivation(context)
+                    message = generate_daily_motivation(context=context, user_id=user_id)
                 except Exception as e:
                     logger.error(f"[DAILY JOB] AI generation failed for user {user_id}: {e}")
                     continue
 
                 # Save motivation
                 try:
-                    db.add(
-                        DailyAIMotivation(
-                            user_id=user_id,
-                            date=date.today(),
-                            message=message
-                        )
+                    motivation = DailyAIMotivation(
+                        user_id=user_id,
+                        date=date.today(),
+                        message=message
                     )
+
+                    db.add(motivation)
                     db.commit()
+                    db.refresh(motivation)
+
+                    try:
+                        store_embedding(db=db,user_id=user_id,source="daily_motivation",source_id=motivation.id,content=message,)
+                        logger.info(f"[DAILY JOB] Stored embedding for user {user_id}")
+                    except Exception as e:
+                        logger.warning(f"[DAILY JOB] Failed to store embedding for user {user_id}: {e}")
+
                     logger.info(f"[DAILY JOB] Saved motivation for user {user_id}")
                 except Exception as e:
                     db.rollback()
@@ -158,27 +166,46 @@ def monthly_job(self):
 
                 try:
                     # Generate AI review
-                    review_dict = generate_monthly_review({
-                        "month": current_month_str,
-                        "timeline": timeline
-                    })
-                    review_json_str = json.dumps(review_dict, ensure_ascii=False)
+                    review_dict = generate_monthly_review(
+                        summary={
+                            "month": current_month_str,
+                            "timeline": timeline
+                        },
+                        user_id=user_id
+                    )
+
+                    review_text = (
+                        f"Patterns: {review_dict.get('patterns', '')}. "
+                        f"Root causes: {review_dict.get('root_causes', '')}. "
+                        f"Recommendations: {'; '.join(review_dict.get('recommendations', []))}. "
+                        f"Notable: {review_dict.get('notable', '')}."
+                    )
 
                     db.add(
                         MonthlyAIReview(
                             user_id=user_id,
                             month=current_month_str,
-                            content=review_json_str,
+                            content=json.dumps(review_dict, ensure_ascii=False),
                             created_at=datetime.now(timezone.utc)
                         )
                     )
                     db.commit()
+                    try:
+                        store_embedding(
+                            user_id=user_id,
+                            source="monthly_review",
+                            content=review_text,
+                        )   
+                    except Exception as e:
+                        logger.warning(
+                            f"[MONTHLY JOB] Failed to store embedding for user {user_id}: {e}"
+                        )
                     logger.info(f"[MONTHLY AI REVIEW] Generated review for user {user_id}")
 
                 except Exception as e:
                     db.rollback()
                     logger.error(f"[MONTHLY AI REVIEW] Failed for user {user_id}: {e}")
-
+                
         except Exception as e:
             logger.error(f"[MONTHLY AI REVIEW] Unexpected error: {e}")
 
