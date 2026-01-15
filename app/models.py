@@ -83,7 +83,6 @@ class DailyAIMotivation(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
     )
-
 class MonthlyAIReview(Base):
     __tablename__ = "monthly_ai_reviews"
 
@@ -130,7 +129,7 @@ class AIEmbedding(Base):
 
     content = Column(Text, nullable=False)
 
-    embedding = Column(Vector(1536), nullable=False)
+    embedding = Column(Vector(1024), nullable=False)
 
     created_at = Column(
         DateTime(timezone=True),
