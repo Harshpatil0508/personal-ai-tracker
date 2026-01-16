@@ -1,6 +1,6 @@
 from datetime import datetime,timezone
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
 from app.database import Base
 from sqlalchemy.orm import relationship
 
@@ -135,4 +135,35 @@ class AIEmbedding(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         index=True
+    )
+
+class AIFeedback(Base):
+    __tablename__ = "ai_feedback"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    source = Column(String, nullable=False)
+    source_id = Column(Integer, nullable=False)
+
+    #  true, false
+    is_helpful = Column(Boolean, nullable=False)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "source", "source_id",
+            name="uq_user_ai_feedback"
+        ),
     )

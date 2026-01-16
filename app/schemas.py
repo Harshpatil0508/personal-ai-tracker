@@ -33,3 +33,8 @@ class DailyLogUpdate(BaseModel):
 class MonthlyAnalyticsResponse(BaseModel):
     month: str
     summary: dict
+
+class AIFeedbackCreate(BaseModel):
+    source: str
+    source_id: int
+    is_helpful: bool
