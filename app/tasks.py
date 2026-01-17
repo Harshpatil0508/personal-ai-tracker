@@ -94,7 +94,7 @@ def daily_job(self):
 
         except Exception as e:
             logger.error(f"[DAILY JOB] Unexpected error: {e}")
-
+    
     logger.info("[DAILY JOB] Completed daily motivation job")
 
 
@@ -135,7 +135,7 @@ def monthly_job(self):
                     .all()
                 )
 
-                if len(logs) < 10:
+                if len(logs) < 1:
                     logger.info(f"[MONTHLY AI REVIEW] Skipping user {user_id}, not enough logs ({len(logs)})")
                     continue
 
@@ -181,19 +181,22 @@ def monthly_job(self):
                         f"Notable: {review_dict.get('notable', '')}."
                     )
 
-                    db.add(
-                        MonthlyAIReview(
+                    motivation_monthly = MonthlyAIReview(
                             user_id=user_id,
                             month=current_month_str,
                             content=json.dumps(review_dict, ensure_ascii=False),
                             created_at=datetime.now(timezone.utc)
                         )
-                    )
+                    db.add(motivation_monthly)
                     db.commit()
+                    db.refresh(motivation_monthly)
+
                     try:
                         store_embedding(
+                            db=db,
                             user_id=user_id,
                             source="monthly_review",
+                            source_id=motivation_monthly.id,
                             content=review_text,
                         )   
                     except Exception as e:

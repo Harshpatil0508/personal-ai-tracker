@@ -2,6 +2,7 @@ import json
 import logging
 from groq import Groq
 from app.config import GROQ_API_KEY
+from app.utils import extract_json, normalize_numbers, safe_json_load
 from app.vector_search import semantic_search
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ Rules:
         messages=[{"role": "user", "content": prompt}]
     )
 
+    logger.info(f"[AI MEMORY] {memory}")
+
     return response.choices[0].message.content.strip()
 
 
@@ -50,74 +53,74 @@ Rules:
 
 def generate_monthly_review(summary: dict, user_id: int) -> dict:
     memory = semantic_search(
-        user_id,
+        user_id=user_id,
         query="previous productivity patterns and improvements"
     )
+
     prompt = f"""
 You are a behavioral analyst AI.
+
+STRICT RULES:
+- Return ONLY valid JSON
+- No markdown
+- No explanations
+- No fractions (use decimals only)
+- Follow schema exactly
+
+SCHEMA:
+{{
+  "patterns": "string",
+  "root_causes": "string",
+  "recommendations": ["string", "string", "string"],
+  "notable": "string"
+}}
+
 Past insights:
 {memory}
 
 User monthly timeline:
 {summary}
-
-Tasks:
-1. Identify behavior patterns across work, study, sleep, mood, and goals.
-2. Explain likely root causes for strong or weak patterns.
-3. Suggest 3 realistic, actionable improvements for next month.
-4. Highlight streaks or irregularities.
-
-Rules:
-- Be concise but thorough
-- Avoid generic advice
-- Base your analysis strictly on the data
-- Be practical and human
-- Return the output strictly as JSON with this structure:
-
-{{
-    "patterns": "...",
-    "root_causes": "...",
-    "recommendations": ["...", "...", "..."],
-    "notable": "..."
-}}
 """
 
     try:
         response = client.chat.completions.create(
-            model="mixtral-8x7b-32768",
-            messages=[{"role": "user", "content": prompt}]
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
         )
 
-        ai_text = response.choices[0].message.content.strip()
+        ai_text = response.choices[0].message.content
 
-        # Try to clean common JSON issues
-        ai_text_clean = ai_text.replace("\n", "").replace("'", '"')
-        ai_text_clean = ai_text_clean.split("```")[0]  # remove code blocks if AI added them
+        cleaned = extract_json(ai_text)
+        cleaned = normalize_numbers(cleaned)
 
-        # Parse JSON safely
-        review_dict = json.loads(ai_text_clean)
+        review_dict = safe_json_load(cleaned)
 
-        # Ensure all expected keys exist
-        expected_keys = ["patterns", "root_causes", "recommendations", "notable"]
-        for key in expected_keys:
-            if key not in review_dict:
-                review_dict[key] = "" if key != "recommendations" else []
+        if not review_dict:
+            raise ValueError("Empty or invalid AI JSON")
 
-        # Limit recommendations to 4
-        if review_dict["recommendations"] and len(review_dict["recommendations"]) > 4:
-            review_dict["recommendations"] = review_dict["recommendations"][:4]
+        # ---- Schema enforcement ----
+        review_dict.setdefault("patterns", "")
+        review_dict.setdefault("root_causes", "")
+        review_dict.setdefault("notable", "")
+        review_dict.setdefault("recommendations", [])
+
+        if not isinstance(review_dict["recommendations"], list):
+            review_dict["recommendations"] = []
+
+        review_dict["recommendations"] = review_dict["recommendations"][:3]
 
         return review_dict
 
-    except json.JSONDecodeError:
-        logger.warning(f"[MONTHLY AI REVIEW] AI returned invalid JSON: {ai_text}")
     except Exception as e:
-        logger.error(f"[MONTHLY AI REVIEW] AI generation failed: {e}")
+        logger.error(
+            f"[MONTHLY AI REVIEW] Generation failed for user {user_id}: {e}"
+        )
 
-    # Fallback safe dict
+    # ---- SAFE FALLBACK ----
     return {
-        "patterns": "No patterns detected.",
-        "root_causes": "Unable to determine.",
-        "recommendations": ["Keep tracking your activities."],
+        "patterns": "Insufficient data to detect strong patterns.",
+        "root_causes": "Monthly data volume or consistency was too low.",
+        "recommendations": ["Continue tracking activities consistently next month."],
         "notable": ""
     }
