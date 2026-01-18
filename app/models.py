@@ -93,7 +93,7 @@ class MonthlyAIReview(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     month = Column(String(7), nullable=False)  # YYYY-MM
-    content = Column(Text, nullable=False)
+    content = Column(JSON, nullable=False)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
