@@ -5,9 +5,10 @@ import json
 import logging
 from sqlalchemy import distinct, exists
 from app.ai import generate_daily_motivation, generate_monthly_review
+from app.ai_behavior import update_behavior_profile
 from app.celery_app import celery
 from app.database import SessionLocal
-from app.models import DailyAIMotivation, DailyLog, MonthlyAIReview
+from app.models import AIFeedback, DailyAIMotivation, DailyLog, MonthlyAIReview
 from app.vector_store import store_embedding
 
 logger = logging.getLogger(__name__)
@@ -213,3 +214,28 @@ def monthly_job(self):
             logger.error(f"[MONTHLY AI REVIEW] Unexpected error: {e}")
 
     logger.info("[MONTHLY AI REVIEW] Completed monthly AI review job")
+
+
+@celery.task(bind=True,autoretry_for=(Exception,), retry_kwargs={"max_retries": 3, "countdown": 60})
+def weekly_behavior_profile_job(self):
+    """
+    Runs weekly.
+    Updates AIBehaviorProfile for users based on feedback patterns.
+    """
+    logger.info("[BEHAVIOR JOB] Starting weekly behavior update")
+
+    with SessionLocal() as db:
+        # Only users who actually gave feedback
+        user_ids = (
+            db.query(distinct(AIFeedback.user_id))
+            .all()
+        )
+
+        for (user_id,) in user_ids:
+            try:
+                update_behavior_profile(db, user_id)
+                logger.info(f"[BEHAVIOR JOB] Updated profile for user {user_id}")
+            except Exception as e:
+                logger.error(f"[BEHAVIOR JOB] Failed for user {user_id}: {e}")
+
+    logger.info("[BEHAVIOR JOB] Completed weekly behavior update")

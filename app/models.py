@@ -167,3 +167,21 @@ class AIFeedback(Base):
             name="uq_user_ai_feedback"
         ),
     )
+
+class AIBehaviorProfile(Base):
+    __tablename__ = "ai_behavior_profiles"
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    prefers_encouraging = Column(Boolean, default=False)
+    prefers_actionable = Column(Boolean, default=False)
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )

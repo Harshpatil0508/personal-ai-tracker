@@ -23,4 +23,8 @@ celery.conf.beat_schedule = {
         "task": "app.tasks.monthly_job",
         "schedule": crontab(day_of_month=1, hour=1, minute=0),  # 1st day 1:00 AM IST
     },
+    "weekly-ai-behavior-profile": {
+        "task": "app.tasks.behavior_job.weekly_behavior_profile_job",
+        "schedule": crontab(day_of_week="sun", hour=2, minute=0),
+    },
 }
