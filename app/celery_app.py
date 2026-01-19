@@ -17,7 +17,7 @@ celery.conf.enable_utc = False
 celery.conf.beat_schedule = {
     "daily-job-every-midnight": {
         "task": "app.tasks.daily_job",
-        "schedule": crontab(hour=0, minute=0),  # Every day 12:00 AM IST
+        "schedule": crontab(hour=4, minute=0),  # Every day 4:00 AM IST
     },
     "monthly-job-first-day": {
         "task": "app.tasks.monthly_job",
@@ -27,4 +27,8 @@ celery.conf.beat_schedule = {
         "task": "app.tasks.behavior_job.weekly_behavior_profile_job",
         "schedule": crontab(day_of_week="sun", hour=2, minute=0),
     },
+    "auto-daily-log":{
+        "task": "app.tasks.auto_daily_log_job",
+        "schedule": crontab(hour=3, minute=0),  # Every day 4:00 AM IST
+    }
 }

@@ -33,7 +33,7 @@ class DailyLog(Base):
     mood_score = Column(Integer)
     goal_completed_percentage = Column(Numeric(5, 2), nullable=False)
     notes = Column(Text)
-
+    is_auto = Column(Boolean, default=False)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
