@@ -1,6 +1,6 @@
 from sqlalchemy import text
-from app.database import SessionLocal
-from app.ai_embeddings import generate_embedding
+from app.database.database import SessionLocal
+from app.aiEmbeddings import generate_embedding
 
 def semantic_search(user_id: int, query: str, limit: int = 3):
     db = SessionLocal()

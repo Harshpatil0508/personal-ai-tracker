@@ -1,5 +1,5 @@
 from sqlalchemy import text
-from app.models import AIBehaviorProfile
+from app.database.models import AIBehaviorProfile
 from datetime import datetime, timezone
 
 

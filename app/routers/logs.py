@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import date,datetime
-from app.models import DailyLog
+from app.database.models import DailyLog
 from app.schemas import DailyLogCreate, DailyLogUpdate
 from app.dependencies import get_current_user_id
-from app.db import get_db
+from app.database.db import get_db
 router = APIRouter(prefix="/daily-logs", tags=["Daily Logs"])
 
 # Create daily log
