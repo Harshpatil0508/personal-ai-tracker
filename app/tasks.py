@@ -5,9 +5,10 @@ import json
 import logging
 from sqlalchemy import distinct, exists
 from app.ai import generate_daily_motivation, generate_monthly_review
+from app.ai_behavior import update_behavior_profile
 from app.celery_app import celery
 from app.database import SessionLocal
-from app.models import DailyAIMotivation, DailyLog, MonthlyAIReview
+from app.models import AIFeedback, DailyAIMotivation, DailyLog, MonthlyAIReview, User
 from app.vector_store import store_embedding
 
 logger = logging.getLogger(__name__)
@@ -213,3 +214,77 @@ def monthly_job(self):
             logger.error(f"[MONTHLY AI REVIEW] Unexpected error: {e}")
 
     logger.info("[MONTHLY AI REVIEW] Completed monthly AI review job")
+
+
+@celery.task(bind=True,autoretry_for=(Exception,), retry_kwargs={"max_retries": 3, "countdown": 60})
+def weekly_behavior_profile_job(self):
+    """
+    Runs weekly.
+    Updates AIBehaviorProfile for users based on feedback patterns.
+    """
+    logger.info("[BEHAVIOR JOB] Starting weekly behavior update")
+
+    with SessionLocal() as db:
+        # Only users who actually gave feedback
+        user_ids = (
+            db.query(distinct(AIFeedback.user_id))
+            .all()
+        )
+
+        for (user_id,) in user_ids:
+            try:
+                update_behavior_profile(db, user_id)
+                logger.info(f"[BEHAVIOR JOB] Updated profile for user {user_id}")
+            except Exception as e:
+                logger.error(f"[BEHAVIOR JOB] Failed for user {user_id}: {e}")
+
+    logger.info("[BEHAVIOR JOB] Completed weekly behavior update")
+
+
+@celery.task(bind=True,autoretry_for=(Exception,), retry_kwargs={"max_retries": 3, "countdown": 60})
+def auto_fill_daily_logs(self):
+    """
+    Creates a default DailyLog for users who did not add one today.
+    Marks it as system-generated (is_auto=True).
+    """
+    today = date.today()
+    logger.info(f"[AUTO LOG JOB] Starting auto-fill for {today}")
+
+    with SessionLocal() as db:
+        users = db.query(User.id).all()
+
+        for (user_id,) in users:
+            exists_today = db.query(
+                exists().where(
+                    (DailyLog.user_id == user_id) &
+                    (DailyLog.date == today)
+                )
+            ).scalar()
+
+            if exists_today:
+                logger.info(f"Logs already exist for user {user_id}, skipping.")
+                continue
+
+            auto_log = DailyLog(
+                user_id=user_id,
+                date=today,
+                work_hours=0.0,
+                study_hours=0.0,
+                sleep_hours=None,
+                mood_score=None,
+                goal_completed_percentage=0.0,
+                notes="Auto-generated: no entry for this day",
+                is_auto=True,
+            )
+
+            try:
+                db.add(auto_log)
+                db.commit()
+                logger.info(f"[AUTO LOG JOB] Created auto log for user {user_id}")
+            except Exception as e:
+                db.rollback()
+                logger.error(
+                    f"[AUTO LOG JOB] Failed for user {user_id}: {e}"
+                )
+
+    logger.info("[AUTO LOG JOB] Completed auto-fill job")
