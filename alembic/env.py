@@ -1,8 +1,8 @@
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
-from app.database import Base
-from app import models  # ensures all models are registered
+from app.database.database import Base
+from app.database import models  # ensures all models are registered
 from dotenv import load_dotenv
 import os
 

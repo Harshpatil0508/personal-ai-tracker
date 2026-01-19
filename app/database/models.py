@@ -1,7 +1,7 @@
 from datetime import datetime,timezone
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
-from app.database import Base
+from app.database.database import Base
 from sqlalchemy.orm import relationship
 
 class User(Base):

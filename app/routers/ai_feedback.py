@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db import get_db
+from app.database.db import get_db
 from app.dependencies import get_current_user_id
-from app.models import AIFeedback
+from app.database.models import AIFeedback
 from app.schemas import AIFeedbackCreate
 
 router = APIRouter(prefix="/ai", tags=["AI Feedback"])

@@ -4,11 +4,11 @@ from hashlib import sha256
 from jose import jwt, JWTError
 
 from app.dependencies import get_current_user_id
-from app.models import User, RefreshToken
+from app.database.models import User, RefreshToken
 from app.schemas import UserCreate, UserLogin
 from app.auth import hash_password, verify_password, create_access_token, create_refresh_token
 from app.config import JWT_SECRET
-from app.db import get_db
+from app.database.db import get_db
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 

@@ -3,8 +3,8 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from app.config import JWT_SECRET
-from app.db import get_db
-from app.models import User
+from app.database.db import get_db
+from app.database.models import User
 
 ALGORITHM = "HS256"
 

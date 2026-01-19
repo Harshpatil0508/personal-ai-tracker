@@ -2,10 +2,10 @@ import json
 import logging
 from groq import Groq
 from app.config import GROQ_API_KEY
-from app.database import SessionLocal
-from app.models import AIBehaviorProfile
+from app.database.database import SessionLocal
+from app.database.models import AIBehaviorProfile
 from app.utils import extract_json, normalize_numbers, safe_json_load
-from app.vector_search import semantic_search
+from app.aiEmbeddings.vector_search import semantic_search
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

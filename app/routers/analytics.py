@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
 
-from app.models import DailyLog, MonthlyAnalytics
+from app.database.models import DailyLog, MonthlyAnalytics
 from app.analytics import generate_monthly_summary
 from app.dependencies import get_current_user_id
-from app.db import get_db
+from app.database.db import get_db
 from app.schemas import MonthlyAnalyticsResponse
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
