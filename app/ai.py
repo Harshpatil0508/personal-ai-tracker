@@ -2,6 +2,8 @@ import json
 import logging
 from groq import Groq
 from app.config import GROQ_API_KEY
+from app.database import SessionLocal
+from app.models import AIBehaviorProfile
 from app.utils import extract_json, normalize_numbers, safe_json_load
 from app.vector_search import semantic_search
 
@@ -17,26 +19,35 @@ def generate_daily_motivation(context: dict, user_id: int) -> str:
         user_id,
         query="recent struggles and motivation"
     )
+
+    with SessionLocal() as db:
+        profile = db.get(AIBehaviorProfile, user_id)
+
+    tone = "calm and supportive"
+    style = ""
+
+    if profile:
+        if profile.prefers_encouraging:
+            tone = "warm, empathetic, and reassuring"
+        if profile.prefers_actionable:
+            style = "Provide 1-2 concrete, simple actions."
+
     prompt = f"""
-You are a calm, supportive personal coach.
+You are a {tone} personal coach.
+{style}
+
 User memory:
 {memory}
 
-User context (last few days):
+User context:
 {context}
 
 Rules:
 - Never ask questions
 - No clichés
-- Be specific to the user's data
-- Never give generic advice
-- The message must be uplifting and motivating
-- Never judge or criticize
-- Never ask why
-- No toxic positivity
-- No medical advice
-- Max 3 lines (strict with this rule)
-- Be practical and human
+- No generic advice
+- Max 3 lines
+- Be human and practical
 """
 
     response = client.chat.completions.create(
