@@ -1,6 +1,6 @@
 from app.database.database import SessionLocal
 from app.database.models import AIEmbedding
-from app.aiEmbeddings import generate_embedding
+from app.aiEmbeddings.ai_embeddings import generate_embedding
 
 def store_embedding(db, user_id: int, source: str, source_id: int, content: str):
     vector = generate_embedding(content)
