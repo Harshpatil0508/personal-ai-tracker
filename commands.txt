@@ -25,6 +25,9 @@ alembic init alembic
 alembic revision --autogenerate -m "initial"
 alembic upgrade head
 
+under psql for initial run : 
+CREATE EXTENSION IF NOT EXISTS vector;
+
 
 Start the FastAPI server:
 
@@ -35,8 +38,13 @@ Optional :
 
 Start Celery worker:
 
-celery -A app.celery_app worker -l info
+celery -A app.backgroundTask.celery_app worker -l info
 
 Start Celery beat (scheduler):
 
-celery -A app.celery_app beat -l info
+celery -A app.backgroundTask.celery_app beat -l info
+
+
+
+
+

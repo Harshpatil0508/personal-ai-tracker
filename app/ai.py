@@ -13,51 +13,119 @@ logger.setLevel(logging.INFO)
 client = Groq(api_key=GROQ_API_KEY)
 
 # -------- DAILY MOTIVATION --------
+def generate_daily_motivation(context: dict, user_id: int) -> dict:
+    """
+    Returns explainable daily motivation.
+    Output format:
+    {
+        "insight": str,
+        "explanation": {
+            "why": list[str],
+            "data_used": list[str],
+            "confidence": float,
+            "what_would_change_this": list[str]
+        }
+    }
+    """
 
-def generate_daily_motivation(context: dict, user_id: int) -> str:
-    memory = semantic_search(
+    # ---- Retrieve memory ----
+    memory_items = semantic_search(
         user_id,
         query="recent struggles and motivation"
     )
 
+    memory_text = "\n".join(memory_items)
+
+    # ---- Load behavior profile ----
     with SessionLocal() as db:
         profile = db.get(AIBehaviorProfile, user_id)
 
     tone = "calm and supportive"
     style = ""
+    behavior_reasons = []
 
     if profile:
         if profile.prefers_encouraging:
             tone = "warm, empathetic, and reassuring"
-        if profile.prefers_actionable:
-            style = "Provide 1-2 concrete, simple actions."
+            behavior_reasons.append(
+                "User previously responded positively to encouraging messages"
+            )
 
+        if profile.prefers_actionable:
+            style = "Provide 1–2 concrete, simple actions."
+            behavior_reasons.append(
+                "User prefers actionable advice based on past feedback"
+            )
+
+    # ---- Build Explainable AI prompt ----
     prompt = f"""
 You are a {tone} personal coach.
 {style}
 
 User memory:
-{memory}
+{memory_text}
 
 User context:
 {context}
+
+Return STRICT JSON ONLY with this structure:
+{{
+  "insight": "short motivational message (max 3 lines)",
+  "explanation": {{
+    "why": ["reason1", "reason2"],
+    "data_used": ["metric1", "metric2"],
+    "confidence": number_between_0_and_1,
+    "what_would_change_this": ["condition1", "condition2"]
+  }}
+}}
 
 Rules:
 - Never ask questions
 - No clichés
 - No generic advice
-- Max 3 lines
 - Be human and practical
+- JSON only, no markdown
 """
 
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
     )
 
-    logger.info(f"[AI MEMORY] {memory}")
+    raw = response.choices[0].message.content.strip()
 
-    return response.choices[0].message.content.strip()
+    logger.info(f"[AI MEMORY USED] {memory_items}")
+
+    # ---- Parse safely ----
+    try:
+        ai_output = json.loads(raw)
+
+        # Inject system-known behavior reasoning
+        if behavior_reasons:
+            ai_output["explanation"]["why"].extend(behavior_reasons)
+
+        return ai_output
+
+    except Exception as e:
+        logger.warning(f"[DAILY AI] JSON parse failed: {e}")
+
+        # ---- Fallback (system-safe) ----
+        return {
+            "insight": raw[:200],
+            "explanation": {
+                "why": [
+                    "Generated using recent user context",
+                    *behavior_reasons
+                ],
+                "data_used": list(context.keys()),
+                "confidence": 0.3,
+                "what_would_change_this": [
+                    "More consistent daily logs",
+                    "User feedback on this advice"
+                ]
+            }
+        }
 
 
 # -------- MONTHLY IN-DEPTH REVIEW --------
