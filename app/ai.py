@@ -131,6 +131,21 @@ Rules:
 # -------- MONTHLY IN-DEPTH REVIEW --------
 
 def generate_monthly_review(summary: dict, user_id: int) -> dict:
+    """
+    Returns explainable monthly AI review.
+
+    Output:
+    {
+      "insight": str,
+      "explanation": {
+        "why": list[str],
+        "data_used": list[str],
+        "confidence": float,
+        "what_would_change_this": list[str]
+      }
+    }
+    """
+
     memory = semantic_search(
         user_id=user_id,
         query="previous productivity patterns and improvements"
@@ -142,16 +157,19 @@ You are a behavioral analyst AI.
 STRICT RULES:
 - Return ONLY valid JSON
 - No markdown
-- No explanations
-- No fractions (use decimals only)
-- Follow schema exactly
+- No prose outside JSON
+- Use decimals only
+- Follow schema EXACTLY
 
 SCHEMA:
 {{
-  "patterns": "string",
-  "root_causes": "string",
-  "recommendations": ["string", "string", "string"],
-  "notable": "string"
+  "insight": "concise but meaningful monthly summary",
+  "explanation": {{
+    "why": ["reason1", "reason2"],
+    "data_used": ["metric1", "metric2"],
+    "confidence": 0.0,
+    "what_would_change_this": ["condition1", "condition2"]
+  }}
 }}
 
 Past insights:
@@ -165,41 +183,64 @@ User monthly timeline:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
+            temperature=0.3,
         )
 
-        ai_text = response.choices[0].message.content
+        raw = response.choices[0].message.content.strip()
 
-        cleaned = extract_json(ai_text)
+        # ---- Strict JSON handling (reuse your utilities) ----
+        cleaned = extract_json(raw)
         cleaned = normalize_numbers(cleaned)
 
-        review_dict = safe_json_load(cleaned)
+        review = safe_json_load(cleaned)
 
-        if not review_dict:
+        if not review:
             raise ValueError("Empty or invalid AI JSON")
 
         # ---- Schema enforcement ----
-        review_dict.setdefault("patterns", "")
-        review_dict.setdefault("root_causes", "")
-        review_dict.setdefault("notable", "")
-        review_dict.setdefault("recommendations", [])
+        review.setdefault("insight", "")
+        review.setdefault("explanation", {})
 
-        if not isinstance(review_dict["recommendations"], list):
-            review_dict["recommendations"] = []
+        explanation = review["explanation"]
+        explanation.setdefault("why", [])
+        explanation.setdefault("data_used", [])
+        explanation.setdefault("confidence", 0.0)
+        explanation.setdefault("what_would_change_this", [])
 
-        review_dict["recommendations"] = review_dict["recommendations"][:3]
+        # ---- Hard guards ----
+        if not isinstance(explanation["why"], list):
+            explanation["why"] = []
 
-        return review_dict
+        if not isinstance(explanation["data_used"], list):
+            explanation["data_used"] = []
+
+        if not isinstance(explanation["what_would_change_this"], list):
+            explanation["what_would_change_this"] = []
+
+        explanation["confidence"] = float(
+            min(max(explanation.get("confidence", 0.0), 0.0), 1.0)
+        )
+
+        return {
+            "insight": review["insight"],
+            "explanation": explanation
+        }
 
     except Exception as e:
         logger.error(
-            f"[MONTHLY AI REVIEW] Generation failed for user {user_id}: {e}"
+            f"[MONTHLY AI REVIEW] Explainable generation failed for user {user_id}: {e}"
         )
 
-    # ---- SAFE FALLBACK ----
+    # ---- SAFE FALLBACK (Explainable) ----
     return {
-        "patterns": "Insufficient data to detect strong patterns.",
-        "root_causes": "Monthly data volume or consistency was too low.",
-        "recommendations": ["Continue tracking activities consistently next month."],
-        "notable": ""
+        "insight": "This month did not show strong or consistent behavioral patterns.",
+        "explanation": {
+            "why": ["Insufficient or inconsistent monthly data"],
+            "data_used": [],
+            "confidence": 0.25,
+            "what_would_change_this": [
+                "More consistent daily logs",
+                "At least 10-15 active days in a month"
+            ]
+        }
     }
