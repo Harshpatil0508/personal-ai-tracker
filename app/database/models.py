@@ -78,7 +78,10 @@ class DailyAIMotivation(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     date = Column(Date)
-    message = Column(Text)
+    # message = Column(Text)
+    insight = Column(Text, nullable=False)
+    explanation = Column(JSON, nullable=False)
+
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
@@ -93,7 +96,9 @@ class MonthlyAIReview(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     month = Column(String(7), nullable=False)  # YYYY-MM
-    content = Column(JSON, nullable=False)
+    # content = Column(JSON, nullable=False)
+    insight = Column(Text, nullable=False)
+    explanation = Column(JSON, nullable=False)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
