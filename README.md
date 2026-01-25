@@ -40,3 +40,5 @@ Daily Logs → Analytics → Behavior Change Detection → Explainable AI → Fe
 - All AI decisions are explainable
 - Systems improve via feedback, not retraining
 
+## Status
+🚧 In active development
