@@ -181,9 +181,14 @@ class AIBehaviorProfile(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True
     )
-
+    # preference learnign (from feedback)
     prefers_encouraging = Column(Boolean, default=False)
     prefers_actionable = Column(Boolean, default=False)
+
+
+    # outcome learning (from delayed validation)
+    successful_advice = Column(Integer, default=0)
+    failed_advice = Column(Integer, default=0)
 
     updated_at = Column(
         DateTime(timezone=True),
@@ -193,6 +198,12 @@ class AIBehaviorProfile(Base):
 
 class AIValidation(Base):
     __tablename__ = "ai_validation"
+    __table_args__ = (
+        UniqueConstraint(
+            "ai_type", "ai_ref_id", "metric",
+            name="uq_ai_validation_once"
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
 
