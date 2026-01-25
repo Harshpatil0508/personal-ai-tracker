@@ -30,7 +30,8 @@ Daily Logs → Analytics → Behavior Change Detection → Explainable AI → Fe
 - FastAPI
 - PostgreSQL + pgvector
 - Celery + Redis
-- OpenAI API
+- GROQ API to generate daily motivation and monthly recommendations
+- JINA API to generate the embeddings
 - Docker
 
 ## Key Design Principles
