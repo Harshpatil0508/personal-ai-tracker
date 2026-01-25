@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 
 import json
 import logging
-from sqlalchemy import distinct, exists
+from sqlalchemy import distinct, exists, text
 from app.ai import generate_daily_motivation, generate_monthly_review
 from app.ai_behavior import update_behavior_profile
 from app.backgroundTask.celery_app import celery
@@ -11,6 +11,7 @@ from app.database.database import SessionLocal
 from app.database.models import AIFeedback, DailyAIMotivation, DailyLog, MonthlyAIReview, User
 from app.aiEmbeddings.vector_store import store_embedding
 from app.utils import get_user_monthly_window
+from app.validation import validate_ai_advice
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -346,3 +347,46 @@ def auto_fill_daily_logs(self):
                 )
 
     logger.info("[AUTO LOG JOB] Completed auto-fill job")
+
+
+@celery.task(bind=True)
+def validate_daily_ai(self):
+    db = SessionLocal()
+
+    motivations = db.execute(text("""
+        SELECT id, user_id
+        FROM daily_ai_motivation
+        WHERE date <= CURRENT_DATE - INTERVAL '7 days'
+    """)).fetchall()
+
+    for m in motivations:
+        validate_ai_advice(
+            user_id=m.user_id,
+            ai_type="daily_motivation",
+            ai_ref_id=m.id,
+            metric="mood_score",
+            days_window=7
+        )
+
+    db.close()
+
+@celery.task(bind=True)
+def validate_monthly_ai(self):
+    db = SessionLocal()
+
+    reviews = db.execute("""
+        SELECT id, user_id
+        FROM monthly_ai_reviews
+        WHERE created_at <= CURRENT_DATE - INTERVAL '30 days'
+    """).fetchall()
+
+    for r in reviews:
+        validate_ai_advice(
+            user_id=r.user_id,
+            ai_type="monthly_review",
+            ai_ref_id=r.id,
+            metric="sleep_hours",
+            days_window=14
+        )
+
+    db.close()

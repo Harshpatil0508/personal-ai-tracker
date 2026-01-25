@@ -30,5 +30,13 @@ celery.conf.beat_schedule = {
     "auto-daily-log":{
         "task": "app.backgroundTask.tasks.auto_daily_log_job",
         "schedule": crontab(hour=3, minute=0),  # Every day 4:00 AM IST
-    }
+    },
+    "validate-daily-ai": {
+        "task": "app.backgroundTask.tasks.validate_daily_ai",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    "validate-monthly-ai": {
+        "task": "app.backgroundTask.tasks.validate_monthly_ai",
+        "schedule": crontab(day_of_month=15, hour=4, minute=0),
+    },
 }

@@ -190,3 +190,32 @@ class AIBehaviorProfile(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc)
     )
+
+class AIValidation(Base):
+    __tablename__ = "ai_validation"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(Integer, index=True, nullable=False)
+
+    ai_type = Column(String, nullable=False)
+    # daily_motivation | monthly_review
+
+    ai_ref_id = Column(Integer, nullable=False)
+    # references DailyAIMotivation.id or MonthlyAIReview.id
+
+    metric = Column(String, nullable=False)
+    # sleep_hours | work_hours | mood_score | goal_completed_percentage
+
+    before_value = Column(Float)
+    after_value = Column(Float)
+    delta = Column(Float)
+
+    result = Column(String, nullable=False)
+    # improved | neutral | declined
+
+    validated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True
+    )
