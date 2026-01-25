@@ -10,7 +10,7 @@ def calculate_metric_average(db, user_id, metric, start_date, end_date):
             DailyLog.user_id == user_id,
             DailyLog.date >= start_date,
             DailyLog.date <= end_date,
-            DailyLog.is_auto == False  # 🔑 ignore auto-filled days
+            DailyLog.is_auto == False  # ignore auto-filled days
         )
         .all()
     )
