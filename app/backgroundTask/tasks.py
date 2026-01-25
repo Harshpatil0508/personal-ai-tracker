@@ -8,7 +8,7 @@ from app.ai import generate_daily_motivation, generate_monthly_review
 from app.ai_behavior import update_behavior_profile
 from app.backgroundTask.celery_app import celery
 from app.database.database import SessionLocal
-from app.database.models import AIFeedback, DailyAIMotivation, DailyLog, MonthlyAIReview, User
+from app.database.models import AIFeedback, AIValidation, DailyAIMotivation, DailyLog, MonthlyAIReview, User
 from app.aiEmbeddings.vector_store import store_embedding
 from app.utils import get_user_monthly_window
 from app.validation import validate_ai_advice
@@ -360,6 +360,18 @@ def validate_daily_ai(self):
     """)).fetchall()
 
     for m in motivations:
+        already_validated = (
+            db.query(AIValidation)
+            .filter_by(
+                ai_type="daily_motivation",
+                ai_ref_id=m.id,
+                metric="mood_score",
+            )
+            .first()
+        )
+
+        if already_validated:
+            continue  # ✅ skip safely
         validate_ai_advice(
             user_id=m.user_id,
             ai_type="daily_motivation",
