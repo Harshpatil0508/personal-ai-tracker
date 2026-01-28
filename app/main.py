@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import auth, logs, analytics, admin, test, ai_feedback
+from app.routers import auth, logs, analytics, admin, test, ai_feedback,ai_validation
 
 app = FastAPI()
 
@@ -9,4 +9,5 @@ app.include_router(analytics.router)
 app.include_router(admin.router)
 app.include_router(test.router)
 app.include_router(ai_feedback.router)
+app.include_router(ai_validation.router)
 
