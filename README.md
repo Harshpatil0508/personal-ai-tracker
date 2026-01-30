@@ -1,4 +1,4 @@
-# Personal AI Tracker
+# REFLECTA (Personal AI Tracker)
 
 An AI-powered personal tracking and self-improvement system that goes beyond dashboards by detecting real behavior changes, 
 generating explainable recommendations, and validating whether AI advice actually works.
@@ -39,4 +39,5 @@ Daily Logs → Analytics → Behavior Change Detection → Explainable AI → Fe
 - Intelligence lives in backend, not prompts
 - All AI decisions are explainable
 - Systems improve via feedback, not retraining
+
 
