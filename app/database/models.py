@@ -195,6 +195,8 @@ class AIBehaviorProfile(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc)
     )
+    avoid_repeating_failed = Column(Boolean, default=False)
+
 
 class AIValidation(Base):
     __tablename__ = "ai_validation"

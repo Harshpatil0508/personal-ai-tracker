@@ -2,6 +2,8 @@ from sqlalchemy import text
 from datetime import datetime, timezone
 from app.database.models import AIBehaviorProfile, AIValidation
 
+ENCOURAGING_TERMS = {"support", "steady", "okay", "balance", "calm", "consistent"}
+ACTIONABLE_TERMS = {"step", "plan", "action", "do", "try", "reduce", "increase"}
 
 def update_behavior_profile(db, user_id: int):
     """
@@ -11,31 +13,36 @@ def update_behavior_profile(db, user_id: int):
     2) Delayed validation (what actually worked)
     """
 
-    # ---------- FEEDBACK LEARNING ----------
+        # ---------- FEEDBACK LEARNING ----------
     rows = db.execute(text("""
         SELECT
             f.is_helpful,
             e.content
         FROM ai_feedback f
         JOIN ai_embeddings e
-          ON e.user_id = f.user_id
-         AND e.source = f.source
-         AND e.source_id = f.source_id
+        ON e.user_id = f.user_id
+        AND e.source = f.source
+        AND e.source_id = f.source_id
         WHERE f.user_id = :user_id
     """), {"user_id": user_id}).fetchall()
 
     encouraging_score = 0
     actionable_score = 0
 
+    
+
     for row in rows:
-        text_content = row.content.lower()
+        text_content = (row.content or "").lower()
         delta = 1 if row.is_helpful else -1
 
-        if any(w in text_content for w in ["okay", "progress", "steady", "support"]):
-            encouraging_score += delta
+        encouraging_score += delta * sum(
+            1 for w in ENCOURAGING_TERMS if w in text_content
+        )
 
-        if any(w in text_content for w in ["step", "plan", "do this", "action"]):
-            actionable_score += delta
+        actionable_score += delta * sum(
+            1 for w in ACTIONABLE_TERMS if w in text_content
+        )
+
 
     # ---------- OUTCOME LEARNING ----------
     validations = (
@@ -57,6 +64,7 @@ def update_behavior_profile(db, user_id: int):
     profile.successful_advice = success_count
     profile.failed_advice = failure_count
     profile.updated_at = datetime.now(timezone.utc)
+    profile.avoid_repeating_failed = failure_count > success_count
 
     db.add(profile)
     db.commit()

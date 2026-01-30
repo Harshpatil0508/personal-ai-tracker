@@ -16,37 +16,31 @@ client = Groq(api_key=GROQ_API_KEY)
 def generate_daily_motivation(context: dict, user_id: int) -> dict:
     """
     Returns explainable daily motivation.
-
-    Output format:
-    {
-        "insight": str,
-        "explanation": {
-            "why": list[str],
-            "data_used": list[str],
-            "confidence": float,
-            "what_would_change_this": list[str]
-        }
-    }
     """
 
-    # ---------- MEMORY (vector recall) ----------
+    # ---------- MEMORY ----------
     memory_items = semantic_search(
         user_id,
-        query="recent struggles and motivation"
+        query="recent struggles and motivation",
+        limit=3
     )
-    memory_text = "\n".join(memory_items)
+    memory_text = "\n".join(
+        f"- {m}" for m in memory_items if len(m) < 300
+    )
 
-    # ---------- LOAD BEHAVIOR PROFILE ----------
+    # ---------- LOAD PROFILE ----------
     with SessionLocal() as db:
         profile = db.get(AIBehaviorProfile, user_id)
 
+    # ---------- DEFAULTS (SAFE BASELINE) ----------
     tone = "calm and supportive"
     style = ""
     behavior_reasons = []
-    system_confidence = 0.5  # base confidence
+    avoidance_rules = []
+    system_confidence = 0.4  # SAFE DEFAULT
 
     if profile:
-        # ---- Preference learning----
+        # ---------- PREFERENCE LEARNING ----------
         if profile.prefers_encouraging:
             tone = "warm, empathetic, and reassuring"
             behavior_reasons.append(
@@ -54,31 +48,49 @@ def generate_daily_motivation(context: dict, user_id: int) -> dict:
             )
 
         if profile.prefers_actionable:
-            style = "Provide 1–2 concrete, simple actions."
+            style = "Provide 1-2 concrete, simple actions."
             behavior_reasons.append(
                 "User prefers actionable guidance based on past feedback"
             )
 
-        # ---- Outcome learning----
+        # ---------- HARD AVOIDANCE ----------
+        if profile.avoid_repeating_failed:
+            avoidance_rules.append(
+                "Do NOT repeat advice patterns that previously failed"
+            )
+
+        # ---------- OUTCOME-BASED CONFIDENCE ----------
         total = profile.successful_advice + profile.failed_advice
         if total >= 3:
             success_ratio = profile.successful_advice / max(total, 1)
-            system_confidence = round(min(0.9, max(0.2, success_ratio)), 2)
+            system_confidence = round(
+                min(0.9, max(0.2, success_ratio)),
+                2
+            )
 
+            # Outcome safety overrides preference tone
             if profile.failed_advice > profile.successful_advice:
                 tone = "gentle, neutral, and low-pressure"
                 behavior_reasons.append(
-                    "Previous advice was less effective, so tone is softened"
+                    "Previous advice showed mixed or weak outcomes"
                 )
             else:
                 behavior_reasons.append(
                     "Previous advice showed positive outcomes"
                 )
 
-    # ---------- BUILD EXPLAINABLE PROMPT ----------
+    # ---------- PROMPT ----------
+    constraints_block = (
+        "STRICT CONSTRAINTS:\n" +
+        "\n".join("- " + r for r in avoidance_rules)
+        if avoidance_rules else ""
+    )
+
     prompt = f"""
 You are a {tone} personal coach.
 {style}
+
+{constraints_block}
 
 User memory:
 {memory_text}
@@ -86,14 +98,14 @@ User memory:
 User context:
 {context}
 
-Return STRICT JSON ONLY with this structure:
+Return STRICT JSON ONLY:
 {{
   "insight": "short motivational message (max 3 lines)",
   "explanation": {{
     "why": ["reason1", "reason2"],
     "data_used": ["metric1", "metric2"],
     "confidence": number_between_0_and_1,
-    "what_would_change_this": ["condition1", "condition2"]
+    "what_would_change_this": ["condition1"]
   }}
 }}
 
@@ -102,7 +114,7 @@ Rules:
 - No clichés
 - No generic advice
 - Be human and practical
-- JSON only, no markdown
+- JSON only
 """
 
     response = client.chat.completions.create(
@@ -114,24 +126,27 @@ Rules:
     raw = response.choices[0].message.content.strip()
     logger.info(f"[AI MEMORY USED] {memory_items}")
 
-    # ---------- SAFE PARSING + SYSTEM INJECTION ----------
+    # ---------- PARSING ----------
     try:
         ai_output = json.loads(raw)
 
-        # Ensure required keys exist
         ai_output.setdefault("insight", "")
         ai_output.setdefault("explanation", {})
-        ai_output["explanation"].setdefault("why", [])
-        ai_output["explanation"].setdefault("data_used", list(context.keys()))
-        ai_output["explanation"].setdefault("confidence", system_confidence)
-        ai_output["explanation"].setdefault("what_would_change_this", [])
 
-        # Inject system-known reasoning 
-        ai_output["explanation"]["why"].extend(behavior_reasons)
+        explanation = ai_output["explanation"]
+        explanation.setdefault("why", [])
+        explanation.setdefault("data_used", list(context.keys()))
+        explanation.setdefault("confidence", system_confidence)
+        explanation.setdefault("what_would_change_this", [])
 
-        # Clamp confidence safely
-        ai_output["explanation"]["confidence"] = round(
-            min(1.0, max(0.0, ai_output["explanation"]["confidence"])),
+        # System-truth injection (NOT hallucinated)
+        explanation["why"].extend(behavior_reasons)
+        explanation["why"].append(
+            "Advice adapted using learned user preferences and past outcomes"
+        )
+
+        explanation["confidence"] = round(
+            min(1.0, max(0.0, explanation["confidence"])),
             2
         )
 
@@ -140,7 +155,6 @@ Rules:
     except Exception as e:
         logger.warning(f"[DAILY AI] JSON parse failed: {e}")
 
-        # ---------- SYSTEM-SAFE FALLBACK ----------
         return {
             "insight": raw[:200],
             "explanation": {
@@ -176,24 +190,30 @@ def generate_monthly_review(summary: dict, user_id: int) -> dict:
     }
     """
 
-    # ---------- MEMORY (vector recall) ----------
+    # ---------- MEMORY ----------
     memory_items = semantic_search(
         user_id=user_id,
-        query="previous productivity patterns and improvements"
+        query="previous productivity patterns and improvements",
+        limit=3
     )
-    memory_text = "\n".join(memory_items)
 
-    # ---------- LOAD BEHAVIOR PROFILE ----------
+    memory_text = "\n".join(
+        f"- {m}" for m in memory_items if len(m) < 300
+    )
+
+    # ---------- LOAD PROFILE ----------
     with SessionLocal() as db:
         profile = db.get(AIBehaviorProfile, user_id)
 
+    # ---------- SAFE DEFAULTS ----------
     tone = "analytical and balanced"
     style = ""
     behavior_reasons = []
-    system_confidence = 0.45  # base monthly confidence
+    avoidance_rules = []
+    system_confidence = 0.45  # Monthly = lower base confidence
 
     if profile:
-        # ---- Preference learning ----
+        # ---------- PREFERENCE LEARNING ----------
         if profile.prefers_encouraging:
             tone = "supportive but analytical"
             behavior_reasons.append(
@@ -206,12 +226,22 @@ def generate_monthly_review(summary: dict, user_id: int) -> dict:
                 "User prefers actionable takeaways in long-term reviews"
             )
 
-        # ---- Outcome learning----
+        # ---------- HARD AVOIDANCE ----------
+        if profile.avoid_repeating_failed:
+            avoidance_rules.append(
+                "Do NOT repeat advice patterns that previously failed"
+            )
+
+        # ---------- OUTCOME-BASED CONFIDENCE ----------
         total = profile.successful_advice + profile.failed_advice
         if total >= 3:
             success_ratio = profile.successful_advice / max(total, 1)
-            system_confidence = round(min(0.9, max(0.3, success_ratio)), 2)
+            system_confidence = round(
+                min(0.85, max(0.3, success_ratio)),
+                2
+            )
 
+            # Outcome safety overrides tone
             if profile.failed_advice > profile.successful_advice:
                 tone = "cautious, neutral, and observational"
                 behavior_reasons.append(
@@ -222,19 +252,26 @@ def generate_monthly_review(summary: dict, user_id: int) -> dict:
                     "Previous AI guidance showed positive behavioral outcomes"
                 )
 
-    # ---------- BUILD EXPLAINABLE PROMPT ----------
+    # ---------- PROMPT ----------
+    constraints_block = (
+        "STRICT CONSTRAINTS:\n" +
+        "\n".join("- " + r for r in avoidance_rules)
+        if avoidance_rules else ""
+    )
+
     prompt = f"""
-You are a {tone} behavioral analyst AI.
+You are a {tone} behavioral analyst.
 {style}
 
-STRICT RULES:
-- Return ONLY valid JSON
-- No markdown
-- No prose outside JSON
-- Use decimals only
-- Follow schema EXACTLY
+{constraints_block}
 
-SCHEMA:
+Past insights:
+{memory_text}
+
+Monthly timeline data:
+{summary}
+
+Return STRICT JSON ONLY:
 {{
   "insight": "concise but meaningful monthly summary",
   "explanation": {{
@@ -245,11 +282,11 @@ SCHEMA:
   }}
 }}
 
-Past insights:
-{memory_text}
-
-User monthly timeline:
-{summary}
+Rules:
+- No markdown
+- No prose outside JSON
+- Avoid generic advice
+- Base claims ONLY on provided data
 """
 
     try:
@@ -260,14 +297,7 @@ User monthly timeline:
         )
 
         raw = response.choices[0].message.content.strip()
-
-        # ---------- JSON HANDLING ----------
-        cleaned = extract_json(raw)
-        cleaned = normalize_numbers(cleaned)
-        review = safe_json_load(cleaned)
-
-        if not review:
-            raise ValueError("Empty or invalid AI JSON")
+        review = json.loads(raw)
 
         # ---------- SCHEMA ENFORCEMENT ----------
         review.setdefault("insight", "")
@@ -275,52 +305,41 @@ User monthly timeline:
 
         explanation = review["explanation"]
         explanation.setdefault("why", [])
-        explanation.setdefault("data_used", [])
+        explanation.setdefault("data_used", list(summary.keys()))
         explanation.setdefault("confidence", system_confidence)
         explanation.setdefault("what_would_change_this", [])
 
-        if not isinstance(explanation["why"], list):
-            explanation["why"] = []
-
-        if not isinstance(explanation["data_used"], list):
-            explanation["data_used"] = []
-
-        if not isinstance(explanation["what_would_change_this"], list):
-            explanation["what_would_change_this"] = []
-
-        # Inject system-known reasoning (truthful, not hallucinated)
+        # Inject system-truth reasoning (NOT hallucinated)
         explanation["why"].extend(behavior_reasons)
+        explanation["why"].append(
+            "Review adapted using learned user preferences and past outcomes"
+        )
 
-        # Clamp confidence safely
         explanation["confidence"] = round(
-            min(1.0, max(0.0, explanation.get("confidence", system_confidence))),
+            min(1.0, max(0.0, explanation["confidence"])),
             2
         )
 
-        return {
-            "insight": review["insight"],
-            "explanation": explanation
-        }
+        return review
 
     except Exception as e:
         logger.error(
-            f"[MONTHLY AI REVIEW] Explainable generation failed for user {user_id}: {e}"
+            f"[MONTHLY AI REVIEW] JSON parse failed for user {user_id}: {e}"
         )
 
-    # ---------- SAFE FALLBACK ----------
-    return {
-        "insight": "This month did not show strong or consistent behavioral patterns.",
-        "explanation": {
-            "why": [
-                "Monthly data was insufficient or inconsistent",
-                *behavior_reasons
-            ],
-            "data_used": list(summary.keys()) if isinstance(summary, dict) else [],
-            "confidence": system_confidence,
-            "what_would_change_this": [
-                "More consistent daily logs",
-                "At least 10–15 active days in a month"
-            ]
+        # ---------- SAFE FALLBACK ----------
+        return {
+            "insight": "This month showed mixed or inconsistent behavioral patterns.",
+            "explanation": {
+                "why": [
+                    "Monthly data variability was high",
+                    *behavior_reasons
+                ],
+                "data_used": list(summary.keys()) if isinstance(summary, dict) else [],
+                "confidence": system_confidence,
+                "what_would_change_this": [
+                    "More consistent daily tracking",
+                    "At least 10-15 active days in a month"
+                ]
+            }
         }
-    }
-
