@@ -4,7 +4,7 @@ from groq import Groq
 from app.config import GROQ_API_KEY
 from app.database.database import SessionLocal
 from app.database.models import AIBehaviorProfile
-from app.utils import extract_json, normalize_numbers, safe_json_load
+from app.utils.utils import extract_json, normalize_numbers, safe_json_load
 from app.aiEmbeddings.vector_search import semantic_search
 
 logger = logging.getLogger(__name__)
