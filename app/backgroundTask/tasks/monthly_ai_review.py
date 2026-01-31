@@ -6,7 +6,7 @@ import logging
 from app.database.database import SessionLocal
 from app.database.models import DailyLog, MonthlyAIReview
 from app.ai import generate_monthly_review
-from app.utils import get_user_monthly_window
+from app.utils.utils import get_user_monthly_window
 logger = logging.getLogger(__name__)
 
 @celery.task(bind=True)
