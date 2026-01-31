@@ -60,16 +60,19 @@ def generate_daily_motivation(context: dict, user_id: int) -> dict:
             )
 
         # ---------- OUTCOME-BASED CONFIDENCE ----------
-        total = profile.successful_advice + profile.failed_advice
+        successful = profile.successful_advice or 0
+        failed = profile.failed_advice or 0
+
+        total = successful + failed
         if total >= 3:
-            success_ratio = profile.successful_advice / max(total, 1)
+            success_ratio = successful / max(total, 1)
             system_confidence = round(
                 min(0.9, max(0.2, success_ratio)),
                 2
             )
 
             # Outcome safety overrides preference tone
-            if profile.failed_advice > profile.successful_advice:
+            if failed > successful:
                 tone = "gentle, neutral, and low-pressure"
                 behavior_reasons.append(
                     "Previous advice showed mixed or weak outcomes"
