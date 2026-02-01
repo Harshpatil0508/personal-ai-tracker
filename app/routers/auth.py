@@ -71,7 +71,6 @@ def login(user: UserLogin, response: Response, request: Request, db: Session = D
 
 @router.post("/refresh")
 def refresh(response: Response, refresh_token: str = Cookie(None), db: Session = Depends(get_db)):
-    enforce_refresh_limit(user_id) 
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Missing refresh token")
 
@@ -80,6 +79,9 @@ def refresh(response: Response, refresh_token: str = Cookie(None), db: Session =
         user_id = int(payload["sub"])
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    # Enforce per-user refresh limits AFTER we've decoded the token
+    enforce_refresh_limit(user_id)
 
     token_hash = sha256(refresh_token.encode()).hexdigest()
 
