@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, Cookie,status
+from fastapi import APIRouter, Depends, HTTPException, Response, Cookie,status,Request
 from sqlalchemy.orm import Session
 from hashlib import sha256
 from jose import jwt, JWTError
@@ -9,12 +9,17 @@ from app.schemas import UserCreate, UserLogin
 from app.auth import hash_password, verify_password, create_access_token, create_refresh_token
 from app.config import JWT_SECRET
 from app.database.db import get_db
+from app.security.login_rate_limit import enforce_login_rate_limit
+from app.security.refresh_rate_limit import enforce_refresh_limit
+from app.security.register_rate_limit import enforce_register_limit
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(user: UserCreate, db: Session = Depends(get_db)):
+def register(user: UserCreate, request: Request, db: Session = Depends(get_db)):
+    client_ip = request.client.host
+    enforce_register_limit(client_ip)
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already exists")
@@ -33,7 +38,10 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     return {"message": "User registered successfully"}
 
 @router.post("/login")
-def login(user: UserLogin, response: Response, db: Session = Depends(get_db)):
+def login(user: UserLogin, response: Response, request: Request, db: Session = Depends(get_db)):
+
+    client_ip = request.client.host
+    enforce_login_rate_limit(client_ip, user.email)
     db_user = db.query(User).filter(User.email == user.email).first()
 
     if not db_user or not verify_password(user.password, db_user.password_hash):
@@ -63,6 +71,7 @@ def login(user: UserLogin, response: Response, db: Session = Depends(get_db)):
 
 @router.post("/refresh")
 def refresh(response: Response, refresh_token: str = Cookie(None), db: Session = Depends(get_db)):
+    enforce_refresh_limit(user_id) 
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Missing refresh token")
 

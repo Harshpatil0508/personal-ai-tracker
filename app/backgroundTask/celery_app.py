@@ -19,7 +19,11 @@ celery = Celery(
 # Timezone
 celery.conf.timezone = "Asia/Kolkata"
 celery.conf.enable_utc = False
-
+celery.conf.update(
+    worker_concurrency=4,
+    worker_prefetch_multiplier=1,
+    task_acks_late=True,
+)
 # Celery Beat Schedules
 celery.conf.beat_schedule = {
     "daily-job-every-midnight": {
