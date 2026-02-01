@@ -5,6 +5,9 @@ from app.database.models import DailyLog
 from app.schemas import DailyLogCreate, DailyLogUpdate
 from app.dependencies import get_current_user_id
 from app.database.db import get_db
+from app.security.daily_log_limit import enforce_daily_log_limit
+
+
 router = APIRouter(prefix="/daily-logs", tags=["Daily Logs"])
 
 # Create daily log
@@ -14,6 +17,7 @@ def create_daily_log(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
+    enforce_daily_log_limit(user_id)
     today = datetime.today().date()
     print(today)
     exists = db.query(DailyLog).filter(

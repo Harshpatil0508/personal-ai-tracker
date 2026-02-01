@@ -1,9 +1,9 @@
 from datetime import datetime,timezone
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
 from app.database.database import Base
 from sqlalchemy.orm import relationship
-
+from sqlalchemy.sql import func
 class User(Base):
     __tablename__ = "users"
 
@@ -209,7 +209,11 @@ class AIValidation(Base):
 
     id = Column(Integer, primary_key=True)
 
-    user_id = Column(Integer, index=True, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True
+    )
 
     ai_type = Column(String, nullable=False)
     ai_ref_id = Column(Integer, nullable=False)
@@ -227,3 +231,4 @@ class AIValidation(Base):
         default=lambda: datetime.now(timezone.utc),
         index=True
     )
+

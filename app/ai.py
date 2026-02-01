@@ -4,8 +4,13 @@ from groq import Groq
 from app.config import GROQ_API_KEY
 from app.database.database import SessionLocal
 from app.database.models import AIBehaviorProfile
-from app.utils.utils import extract_json, normalize_numbers, safe_json_load
 from app.aiEmbeddings.vector_search import semantic_search
+from fastapi import HTTPException
+from app.security.circuit_breaker import (
+    is_circuit_open,
+    record_failure,
+    record_success,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -19,11 +24,22 @@ def generate_daily_motivation(context: dict, user_id: int) -> dict:
     """
 
     # ---------- MEMORY ----------
-    memory_items = semantic_search(
-        user_id,
-        query="recent struggles and motivation",
-        limit=3
-    )
+    if is_circuit_open("jina"):
+        logger.warning("[CIRCUIT OPEN] Vector search unavailable")
+        memory_items = []
+    else:
+        try:
+            memory_items = semantic_search(
+                user_id,
+                query="recent struggles and motivation",
+                limit=3
+            )
+            record_success("jina")
+        except Exception as e:
+            record_failure("jina")
+            logger.error(f"[JINA ERROR] {e}")
+            memory_items = []
+
     memory_text = "\n".join(
         f"- {m}" for m in memory_items if len(m) < 300
     )
@@ -120,11 +136,31 @@ Rules:
 - JSON only
 """
 
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-    )
+    if is_circuit_open("groq"):
+        logger.warning("[CIRCUIT OPEN] Groq AI unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail="AI service temporarily unavailable. Please try again later."
+        )
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+
+        # Success → reset failure counter
+        record_success("groq")
+
+    except Exception as e:
+        # Failure → record & fail fast
+        record_failure("groq")
+        logger.error(f"[GROQ ERROR] {e}")
+
+        raise HTTPException(
+            status_code=503,
+            detail="AI service error. Please retry later."
+        )
 
     raw = response.choices[0].message.content.strip()
     logger.info(f"[AI MEMORY USED] {memory_items}")
@@ -194,11 +230,25 @@ def generate_monthly_review(summary: dict, user_id: int) -> dict:
     """
 
     # ---------- MEMORY ----------
-    memory_items = semantic_search(
-        user_id=user_id,
-        query="previous productivity patterns and improvements",
-        limit=3
-    )
+
+
+    if is_circuit_open("jina"):
+        logger.warning("[CIRCUIT OPEN] Vector search unavailable")
+        memory_items = []
+    else:
+        try:
+            memory_items = semantic_search(
+                user_id=user_id,
+                query="previous productivity patterns and improvements",
+                limit=3
+            )
+            record_success("jina")
+        except Exception as e:
+            record_failure("jina")
+            logger.error(f"[JINA ERROR] {e}")
+            memory_items = []
+
+    
 
     memory_text = "\n".join(
         f"- {m}" for m in memory_items if len(m) < 300
@@ -291,6 +341,12 @@ Rules:
 - Avoid generic advice
 - Base claims ONLY on provided data
 """
+    if is_circuit_open("groq"):
+        logger.warning("[CIRCUIT OPEN] Groq AI unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail="AI service temporarily unavailable. Please try again later."
+        )
 
     try:
         response = client.chat.completions.create(
@@ -298,7 +354,14 @@ Rules:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
+        record_success("groq")
+        
+    except Exception as e:
+        record_failure("groq")
+        logger.error(f"[GROQ ERROR] {e}")
+        raise
 
+    try:
         raw = response.choices[0].message.content.strip()
         review = json.loads(raw)
 

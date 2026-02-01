@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from app.routers import auth, logs, analytics, admin, test, ai_feedback,ai_validation
+from app.middleware.throttel import ThrottleMiddleware
 
 app = FastAPI()
+
+app.add_middleware(ThrottleMiddleware)
+
 
 app.include_router(auth.router)
 app.include_router(logs.router)

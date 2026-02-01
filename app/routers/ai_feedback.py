@@ -6,6 +6,7 @@ from app.database.db import get_db
 from app.dependencies import get_current_user_id
 from app.database.models import AIFeedback
 from app.schemas import AIFeedbackCreate
+from app.security.feeback_limit import enforce_feedback_limit
 
 router = APIRouter(prefix="/ai", tags=["AI Feedback"])
 
@@ -16,6 +17,7 @@ def submit_ai_feedback(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
+    enforce_feedback_limit(user_id)
     feedback = (
         db.query(AIFeedback)
         .filter(
