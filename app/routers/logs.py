@@ -1,6 +1,8 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import date,datetime
+from app.cache.redis_client import redis_client
 from app.database.models import DailyLog
 from app.schemas import DailyLogCreate, DailyLogUpdate
 from app.dependencies import get_current_user_id
@@ -40,6 +42,7 @@ def create_daily_log(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    redis_client.delete(f"daily_logs:{user_id}")
 
     return {
         "message": "Daily log saved successfully",
@@ -52,6 +55,12 @@ def get_daily_log(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
+    cache_key = f"daily_log:today:{user_id}"
+    # Try Redis
+    cached = redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+    
     today = datetime.today().date()
     log = db.query(DailyLog).filter(
         DailyLog.user_id == user_id,
@@ -60,7 +69,14 @@ def get_daily_log(
 
     if not log:
         raise HTTPException(status_code=400, detail="No daily log found for today")
-
+    redis_client.setex(
+        cache_key,
+        300,
+        json.dumps(
+            log.__dict__,
+            default=str
+        )
+    )
     return get_daily_log_by_date(today,user_id,db)
  
 # Fetch log by date
@@ -70,6 +86,12 @@ def get_daily_log_by_date(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
+    cache_key = f"daily_log:{logDate}:{user_id}"
+    # Try Redis
+    cached = redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
     log = db.query(DailyLog).filter(
         DailyLog.user_id == user_id,
         DailyLog.date == logDate
@@ -78,6 +100,14 @@ def get_daily_log_by_date(
     if not log:
         raise HTTPException(status_code=400, detail=f"No daily log found for date {logDate}") # Changed detail message to include date
 
+    redis_client.setex(
+        cache_key,
+        300,
+        json.dumps(
+            log.__dict__,
+            default=str
+        )
+    )
     return log
 
 # Fetch all logs
@@ -86,15 +116,33 @@ def get_all_daily_log(
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
-    today = datetime.today().date()
-    log = db.query(DailyLog).filter(
-        DailyLog.user_id == user_id,
-    ).order_by(DailyLog.date.desc()).all()
+    cache_key = f"daily_logs:{user_id}"
 
-    if not log:
+    # Try Redis
+    cached = redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+    
+    logs = (
+        db.query(DailyLog)
+        .filter(DailyLog.user_id == user_id)
+        .order_by(DailyLog.date.desc())
+        .all()
+    )
+
+    if not logs:
         raise HTTPException(status_code=400, detail="No logs found for user")
 
-    return log
+    redis_client.setex(
+        cache_key,
+        300,
+        json.dumps(
+            [log.__dict__ for log in logs],
+            default=str
+        )
+    )
+
+    return logs
 
 # Delete today's log
 @router.delete("/today")
@@ -103,6 +151,7 @@ def delete_daily_log(
     db: Session = Depends(get_db)
 ):
     today = datetime.today().date()
+
     return delete_daily_log_by_date(today,user_id,db)
 
 # Delete log by date
@@ -122,6 +171,9 @@ def delete_daily_log_by_date(
 
     db.delete(log)
     db.commit()
+
+    redis_client.delete(f"daily_logs:{user_id}")
+
 
     return {"message": "Daily log deleted successfully"}
 
@@ -157,6 +209,9 @@ def update_log_by_date(
     db.commit()
     db.refresh(log)
 
+    redis_client.delete(f"daily_logs:{user_id}")
+
+
     return {
         "message": "Daily log updated successfully",
         "log": log
@@ -174,5 +229,8 @@ def delete_all_daily_log(
     ).delete()
     
     db.commit()
+
+    redis_client.delete(f"daily_logs:{user_id}")
+
     
     return {"message": "User's all daily logs deleted"}
