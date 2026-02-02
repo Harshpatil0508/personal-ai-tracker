@@ -34,8 +34,8 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
-    ai_behavior_profile = relationship(
-        "AIUserBehaviorProfile",
+    ai_behavior_profiles = relationship(
+        "AIBehaviorProfile",
         back_populates="user",
         cascade="all, delete-orphan"
     )
@@ -244,7 +244,7 @@ class AIBehaviorProfile(Base):
     )
     avoid_repeating_failed = Column(Boolean, default=False)
 
-    user = relationship("User", back_populates="ai_behavior_profile")
+    user = relationship("User", back_populates="ai_behavior_profiles")
 class AIValidation(Base):
     __tablename__ = "ai_validation"
     __table_args__ = (
