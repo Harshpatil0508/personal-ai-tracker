@@ -18,39 +18,8 @@ def auto_fill_daily_logs(self):
     with SessionLocal() as db:
         users = db.query(User.id).all()
 
-        for (user_id,) in users:
-            exists_today = db.query(
-                exists().where(
-                    (DailyLog.user_id == user_id) &
-                    (DailyLog.date == today)
-                )
-            ).scalar()
-
-            if exists_today:
-                logger.info(f"Logs already exist for user {user_id}, skipping.")
-                continue
-
-            auto_log = DailyLog(
-                user_id=user_id,
-                date=today,
-                work_hours=0.0,
-                study_hours=0.0,
-                sleep_hours=None,
-                mood_score=None,
-                goal_completed_percentage=0.0,
-                notes="Auto-generated: no entry for this day",
-                is_auto=True,
-            )
-
-            try:
-                db.add(auto_log)
-                db.commit()
-                logger.info(f"[AUTO LOG JOB] Created auto log for user {user_id}")
-            except Exception as e:
-                db.rollback()
-                logger.error(
-                    f"[AUTO LOG JOB] Failed for user {user_id}: {e}"
-                )
+    for (user_id,) in users:
+        process_user_auto_daily_log.delay(user_id, today)
 
     logger.info("[AUTO LOG JOB] Completed auto-fill job")
 

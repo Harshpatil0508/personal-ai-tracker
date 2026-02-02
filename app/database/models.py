@@ -14,6 +14,47 @@ class User(Base):
     role = Column(String, default="user")  # user | admin
     token_version = Column(Integer, default=1)
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete")
+    daily_logs = relationship(
+        "DailyLog",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    monthly_analytics = relationship(
+        "MonthlyAnalytics",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    ai_embeddings = relationship(
+        "AIEmbedding",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    ai_feedback = relationship(
+        "AIFeedback",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    ai_behavior_profile = relationship(
+        "AIUserBehaviorProfile",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    ai_validation = relationship(
+        "AIValidation",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    daily_ai_motivation = relationship(
+        "DailyAIMotivation",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    monthly_ai_reviews = relationship(
+        "MonthlyAIReview",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
 
 class DailyLog(Base):
     __tablename__ = "daily_logs"
@@ -23,7 +64,7 @@ class DailyLog(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"), nullable=False, index=True)
     date = Column(Date, nullable=False)
 
     work_hours = Column(Float)
@@ -39,25 +80,27 @@ class DailyLog(Base):
         default=lambda: datetime.now(timezone.utc)
     )
 
+    user = relationship("User", back_populates="daily_logs")
+   
 
 class MonthlyAnalytics(Base):
     __tablename__ = "monthly_analytics"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"), nullable=False, index=True)
     month = Column(String, index=True)
     summary = Column(JSON)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
     )
-
+    user = relationship("User", back_populates="monthly_analytics")
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True)
     token_hash = Column(String, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
@@ -76,7 +119,7 @@ class DailyAIMotivation(Base):
 
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"), nullable=False, index=True)
     date = Column(Date)
     # message = Column(Text)
     insight = Column(Text, nullable=False)
@@ -86,6 +129,8 @@ class DailyAIMotivation(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
     )
+
+    user = relationship("User", back_populates="daily_ai_motivation")
 class MonthlyAIReview(Base):
     __tablename__ = "monthly_ai_reviews"
 
@@ -94,7 +139,7 @@ class MonthlyAIReview(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"), nullable=False, index=True)
     month = Column(String(7), nullable=False)  # YYYY-MM
     # content = Column(JSON, nullable=False)
     insight = Column(Text, nullable=False)
@@ -103,6 +148,7 @@ class MonthlyAIReview(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc)
     )
+    user = relationship("User", back_populates="monthly_ai_reviews")
 
 class AIEmbedding(Base):
     __tablename__ = "ai_embeddings"
@@ -141,6 +187,7 @@ class AIEmbedding(Base):
         default=lambda: datetime.now(timezone.utc),
         index=True
     )
+    user = relationship("User", back_populates="ai_embeddings")
 
 class AIFeedback(Base):
     __tablename__ = "ai_feedback"
@@ -172,7 +219,7 @@ class AIFeedback(Base):
             name="uq_user_ai_feedback"
         ),
     )
-
+    user = relationship("User", back_populates="ai_feedback")
 class AIBehaviorProfile(Base):
     __tablename__ = "ai_behavior_profiles"
 
@@ -197,7 +244,7 @@ class AIBehaviorProfile(Base):
     )
     avoid_repeating_failed = Column(Boolean, default=False)
 
-
+    user = relationship("User", back_populates="ai_behavior_profile")
 class AIValidation(Base):
     __tablename__ = "ai_validation"
     __table_args__ = (
@@ -232,3 +279,4 @@ class AIValidation(Base):
         index=True
     )
 
+    user = relationship("User", back_populates="ai_validation")
