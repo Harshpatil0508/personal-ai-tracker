@@ -1,12 +1,19 @@
+import json
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime
 
 from app.database.models import DailyLog, MonthlyAnalytics
 from app.analytics import generate_monthly_summary
 from app.dependencies import get_current_user_id
 from app.database.db import get_db
 from app.schemas import MonthlyAnalyticsResponse
+from app.cache.monthly_analytics_cache import (
+    get_monthly_analytics_cache,
+    set_monthly_analytics_cache,
+)
+
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -17,9 +24,16 @@ def get_monthly_analytics(
     db: Session = Depends(get_db)
 ):
     today = datetime.today()
+    year = today.year
+    month = today.month
     month_key = today.strftime("%Y-%m")
 
-    # Check if already generated
+    # ---------- 1️⃣ REDIS CACHE FIRST ----------
+    cached = get_monthly_analytics_cache(user_id, year, month)
+    if cached:
+        return cached
+
+    # ---------- 2️⃣ DB CHECK (PERSISTED ANALYTICS) ----------
     analytics = (
         db.query(MonthlyAnalytics)
         .filter(
@@ -30,17 +44,24 @@ def get_monthly_analytics(
     )
 
     if analytics:
-        return {
+        response = {
             "month": month_key,
             "summary": analytics.summary
         }
 
-    # Fetch daily logs
+        # Cache DB result
+        set_monthly_analytics_cache(user_id, year, month, response)
+        return response
+
+    # ---------- 3️⃣ COMPUTE FROM DAILY LOGS ----------
     logs = (
         db.query(DailyLog)
         .filter(DailyLog.user_id == user_id)
         .all()
     )
+
+    if not logs:
+        raise HTTPException(status_code=400, detail="Not enough data")
 
     logs_data = [
         {
@@ -58,6 +79,7 @@ def get_monthly_analytics(
     if not summary:
         raise HTTPException(status_code=400, detail="Not enough data")
 
+    # ---------- 4️⃣ STORE IN DB ----------
     analytics = MonthlyAnalytics(
         user_id=user_id,
         month=month_key,
@@ -67,7 +89,12 @@ def get_monthly_analytics(
     db.add(analytics)
     db.commit()
 
-    return {
+    response = {
         "month": month_key,
         "summary": summary
     }
+
+    # ---------- 5️⃣ STORE IN REDIS ----------
+    set_monthly_analytics_cache(user_id, year, month, response)
+
+    return response
