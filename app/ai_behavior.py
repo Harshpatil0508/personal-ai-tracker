@@ -68,3 +68,6 @@ def update_behavior_profile(db, user_id: int):
 
     db.add(profile)
     db.commit()
+
+    from app.cache.behavior_profile_cache import invalidate_behavior_profile_cache
+    invalidate_behavior_profile_cache(user_id)

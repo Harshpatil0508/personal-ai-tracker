@@ -11,6 +11,8 @@ from app.security.circuit_breaker import (
     record_failure,
     record_success,
 )
+from app.cache.behavior_profile_cache import get_behavior_profile_cached, invalidate_behavior_profile_cache
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -46,7 +48,7 @@ def generate_daily_motivation(context: dict, user_id: int) -> dict:
 
     # ---------- LOAD PROFILE ----------
     with SessionLocal() as db:
-        profile = db.get(AIBehaviorProfile, user_id)
+        profile = get_behavior_profile_cached(db, user_id)
 
     # ---------- DEFAULTS (SAFE BASELINE) ----------
     tone = "calm and supportive"
@@ -57,27 +59,27 @@ def generate_daily_motivation(context: dict, user_id: int) -> dict:
 
     if profile:
         # ---------- PREFERENCE LEARNING ----------
-        if profile.prefers_encouraging:
+        if profile.get("prefers_encouraging"):
             tone = "warm, empathetic, and reassuring"
             behavior_reasons.append(
                 "User historically responds better to encouraging language"
             )
 
-        if profile.prefers_actionable:
+        if profile.get("prefers_actionable"):
             style = "Provide 1-2 concrete, simple actions."
             behavior_reasons.append(
                 "User prefers actionable guidance based on past feedback"
             )
 
         # ---------- HARD AVOIDANCE ----------
-        if profile.avoid_repeating_failed:
+        if profile.get("avoid_repeating_failed"):
             avoidance_rules.append(
                 "Do NOT repeat advice patterns that previously failed"
             )
 
         # ---------- OUTCOME-BASED CONFIDENCE ----------
-        successful = profile.successful_advice or 0
-        failed = profile.failed_advice or 0
+        successful = profile.get("successful_advice") or 0
+        failed = profile.get("failed_advice") or 0
 
         total = successful + failed
         if total >= 3:
@@ -256,7 +258,7 @@ def generate_monthly_review(summary: dict, user_id: int) -> dict:
 
     # ---------- LOAD PROFILE ----------
     with SessionLocal() as db:
-        profile = db.get(AIBehaviorProfile, user_id)
+        profile = get_behavior_profile_cached(db, user_id)
 
     # ---------- SAFE DEFAULTS ----------
     tone = "analytical and balanced"
@@ -267,35 +269,35 @@ def generate_monthly_review(summary: dict, user_id: int) -> dict:
 
     if profile:
         # ---------- PREFERENCE LEARNING ----------
-        if profile.prefers_encouraging:
+        if profile.get("prefers_encouraging"):
             tone = "supportive but analytical"
             behavior_reasons.append(
                 "User responds better to supportive explanations"
             )
 
-        if profile.prefers_actionable:
+        if profile.get("prefers_actionable"):
             style = "End with clear, realistic improvement suggestions."
             behavior_reasons.append(
                 "User prefers actionable takeaways in long-term reviews"
             )
 
         # ---------- HARD AVOIDANCE ----------
-        if profile.avoid_repeating_failed:
+        if profile.get("avoid_repeating_failed"):
             avoidance_rules.append(
                 "Do NOT repeat advice patterns that previously failed"
             )
 
         # ---------- OUTCOME-BASED CONFIDENCE ----------
-        total = profile.successful_advice + profile.failed_advice
+        total = profile.get("successful_advice", 0) + profile.get("failed_advice", 0)
         if total >= 3:
-            success_ratio = profile.successful_advice / max(total, 1)
+            success_ratio = profile.get("successful_advice", 0) / max(total, 1)
             system_confidence = round(
                 min(0.85, max(0.3, success_ratio)),
                 2
             )
 
             # Outcome safety overrides tone
-            if profile.failed_advice > profile.successful_advice:
+            if profile.get("failed_advice", 0) > profile.get("successful_advice", 0):
                 tone = "cautious, neutral, and observational"
                 behavior_reasons.append(
                     "Previous AI guidance showed mixed or weak outcomes"
