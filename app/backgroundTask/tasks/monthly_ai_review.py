@@ -122,6 +122,7 @@ def process_user_monthly_review(self, user_id: int):
                     source_id=review.id,
                     content=review.insight,
                 )
+                
             except Exception as e:
                 logger.warning(
                     f"[MONTHLY EMBED FAIL] user={user_id}: {e}"
