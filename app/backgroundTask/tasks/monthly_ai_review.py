@@ -1,13 +1,20 @@
+import logging
+from datetime import datetime, timezone, date
+
 from app.aiEmbeddings.vector_store import store_embedding
 from app.backgroundTask.celery_app import celery
-# from sqlalchemy import distinct
-from datetime import datetime, timezone, date
-import logging
 from app.database.database import SessionLocal
 from app.database.models import DailyLog, MonthlyAIReview
 from app.ai import generate_monthly_review
 from app.utils.utils import get_user_monthly_window
+
+from app.cache.ai_output_cache import (
+    get_monthly_ai_cache,
+    set_monthly_ai_cache,
+)
+
 logger = logging.getLogger(__name__)
+
 
 @celery.task(bind=True)
 def monthly_job_dispatcher(self):
@@ -27,26 +34,24 @@ def monthly_job_dispatcher(self):
     for (user_id,) in user_ids:
         process_user_monthly_review.delay(user_id)
 
-    logger.info(
-        f"[MONTHLY JOB] Dispatched {len(user_ids)} user monthly tasks"
-    )
+    logger.info(f"[MONTHLY JOB] Dispatched {len(user_ids)} user monthly tasks")
+
+
 @celery.task(
     bind=True,
     autoretry_for=(Exception,),
     retry_backoff=True,
-    retry_backoff_max=1800,  # up to 30 minutes
+    retry_backoff_max=1800,
     retry_jitter=True,
     retry_kwargs={"max_retries": 5},
 )
 def process_user_monthly_review(self, user_id: int):
-
     logger.info(f"[MONTHLY USER JOB] Start user={user_id}")
 
     with SessionLocal() as db:
         try:
             today = date.today()
 
-            # ---- First log ----
             first_log = (
                 db.query(DailyLog)
                 .filter(DailyLog.user_id == user_id)
@@ -62,6 +67,7 @@ def process_user_monthly_review(self, user_id: int):
                 today
             )
 
+            # 1️⃣ Check DB first
             exists_review = (
                 db.query(MonthlyAIReview)
                 .filter(
@@ -72,41 +78,49 @@ def process_user_monthly_review(self, user_id: int):
             )
 
             if exists_review:
-                logger.info(
-                    f"[MONTHLY USER JOB] Already exists user={user_id}"
-                )
+                logger.info(f"[MONTHLY USER JOB] Already exists in DB user={user_id}")
                 return
 
-            logs = (
-                db.query(DailyLog)
-                .filter(
-                    DailyLog.user_id == user_id,
-                    DailyLog.date.between(start_date, end_date),
+            # 2️⃣ Check Redis AI cache
+            cached_ai = get_monthly_ai_cache(user_id, window_label)
+            if cached_ai:
+                logger.info(f"[MONTHLY USER JOB] Redis cache hit user={user_id}")
+                ai_output = cached_ai
+            else:
+                logger.info(f"[MONTHLY USER JOB] Redis cache miss user={user_id}")
+
+                logs = (
+                    db.query(DailyLog)
+                    .filter(
+                        DailyLog.user_id == user_id,
+                        DailyLog.date.between(start_date, end_date),
+                    )
+                    .order_by(DailyLog.date)
+                    .all()
                 )
-                .order_by(DailyLog.date)
-                .all()
-            )
 
-            if len(logs) < 5:
-                logger.info(
-                    f"[MONTHLY USER JOB] Insufficient logs user={user_id}"
+                if len(logs) < 5:
+                    logger.info(f"[MONTHLY USER JOB] Insufficient logs user={user_id}")
+                    return
+
+                timeline = build_monthly_timeline(logs)
+
+                ai_output = safe_generate_monthly_review(
+                    user_id=user_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    timeline=timeline,
                 )
-                return
 
-            timeline = build_monthly_timeline(logs)
+                # Store AI output in Redis (40 days)
+                set_monthly_ai_cache(user_id, window_label, ai_output)
 
-            ai_output = safe_generate_monthly_review(
-                user_id=user_id,
-                start_date=start_date,
-                end_date=end_date,
-                timeline=timeline,
-            )
-
+            # 3️⃣ Save DB record
             review = MonthlyAIReview(
                 user_id=user_id,
                 month=window_label,
-                insight=ai_output["insight"],
-                explanation=ai_output["explanation"],
+                insight=ai_output.get("insight", ""),
+                explanation=ai_output.get("explanation", {}),
                 created_at=datetime.now(timezone.utc),
             )
 
@@ -114,6 +128,7 @@ def process_user_monthly_review(self, user_id: int):
             db.commit()
             db.refresh(review)
 
+            # 4️⃣ Store embedding
             try:
                 store_embedding(
                     db=db,
@@ -122,26 +137,25 @@ def process_user_monthly_review(self, user_id: int):
                     source_id=review.id,
                     content=review.insight,
                 )
-                
+                logger.info(f"[MONTHLY EMBED] Stored embedding user={user_id}")
+
             except Exception as e:
-                logger.warning(
-                    f"[MONTHLY EMBED FAIL] user={user_id}: {e}"
-                )
+                logger.warning(f"[MONTHLY EMBED FAIL] user={user_id}: {e}")
 
             logger.info(f"[MONTHLY USER JOB] Success user={user_id}")
 
         except Exception as e:
             db.rollback()
-            logger.exception(
-                f"[MONTHLY USER JOB] HARD FAIL user={user_id}"
-            )
+            logger.exception(f"[MONTHLY USER JOB] HARD FAIL user={user_id}")
+
             send_to_dead_letter.delay(
                 user_id=user_id,
                 source="monthly_review",
                 error=str(e),
             )
-            raise e
-        
+            raise
+
+
 def build_monthly_timeline(logs):
     return [
         {
@@ -156,12 +170,8 @@ def build_monthly_timeline(logs):
         for log in logs
     ]
 
-def safe_generate_monthly_review(
-    user_id: int,
-    start_date,
-    end_date,
-    timeline,
-):
+
+def safe_generate_monthly_review(user_id: int, start_date, end_date, timeline):
     try:
         return generate_monthly_review(
             summary={
@@ -171,10 +181,8 @@ def safe_generate_monthly_review(
             user_id=user_id,
         )
 
-    except Exception as e:
-        logger.error(
-            f"[MONTHLY AI FAIL] user={user_id} → fallback used"
-        )
+    except Exception:
+        logger.error(f"[MONTHLY AI FAIL] user={user_id} → fallback used")
 
         return {
             "insight": (
@@ -195,12 +203,7 @@ def safe_generate_monthly_review(
             },
         }
 
+
 @celery.task
 def send_to_dead_letter(user_id, source, error):
-    logger.critical(
-        f"[DLQ] {source} user={user_id} permanently failed → {error}"
-    )
-
-    # Optional:
-    # save to DB
-    # trigger Ops notification
+    logger.critical(f"[MONTHLY DLQ] {source} user={user_id} permanently failed → {error}")

@@ -2,6 +2,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import date,datetime
+from app.cache.ai_output_cache import invalidate_daily_ai_cache
 from app.cache.redis_client import redis_client
 from app.database.models import DailyLog
 from app.schemas import DailyLogCreate, DailyLogUpdate
@@ -208,6 +209,7 @@ def update_log_by_date(
 
     db.commit()
     db.refresh(log)
+    invalidate_daily_ai_cache(user_id, log_date)
 
     redis_client.delete(f"daily_logs:{user_id}")
 
