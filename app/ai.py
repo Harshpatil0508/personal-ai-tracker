@@ -31,11 +31,13 @@ def generate_daily_motivation(context: dict, user_id: int) -> dict:
         memory_items = []
     else:
         try:
-            memory_items = semantic_search(
-                user_id,
-                query="recent struggles and motivation",
-                limit=3
-            )
+            with SessionLocal() as db:
+                memory_items = semantic_search(
+                    db=db,
+                    user_id=user_id,
+                    query="recent struggles and motivation",
+                    limit=3
+                )
             record_success("jina")
         except Exception as e:
             record_failure("jina")
@@ -239,11 +241,13 @@ def generate_monthly_review(summary: dict, user_id: int) -> dict:
         memory_items = []
     else:
         try:
-            memory_items = semantic_search(
-                user_id=user_id,
-                query="previous productivity patterns and improvements",
-                limit=3
-            )
+            with SessionLocal() as db:
+                memory_items = semantic_search(
+                    db=db,
+                    user_id=user_id,
+                    query="previous productivity patterns and improvements",
+                    limit=3
+                )
             record_success("jina")
         except Exception as e:
             record_failure("jina")

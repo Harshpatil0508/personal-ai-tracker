@@ -28,12 +28,12 @@ def get_monthly_analytics(
     month = today.month
     month_key = today.strftime("%Y-%m")
 
-    # ---------- 1️⃣ REDIS CACHE FIRST ----------
+    # ---------- REDIS CACHE FIRST ----------
     cached = get_monthly_analytics_cache(user_id, year, month)
     if cached:
         return cached
 
-    # ---------- 2️⃣ DB CHECK (PERSISTED ANALYTICS) ----------
+    # ---------- DB CHECK (PERSISTED ANALYTICS) ----------
     analytics = (
         db.query(MonthlyAnalytics)
         .filter(
@@ -53,7 +53,7 @@ def get_monthly_analytics(
         set_monthly_analytics_cache(user_id, year, month, response)
         return response
 
-    # ---------- 3️⃣ COMPUTE FROM DAILY LOGS ----------
+    # ---------- COMPUTE FROM DAILY LOGS ----------
     logs = (
         db.query(DailyLog)
         .filter(DailyLog.user_id == user_id)
@@ -79,7 +79,7 @@ def get_monthly_analytics(
     if not summary:
         raise HTTPException(status_code=400, detail="Not enough data")
 
-    # ---------- 4️⃣ STORE IN DB ----------
+    # ---------- STORE IN DB ----------
     analytics = MonthlyAnalytics(
         user_id=user_id,
         month=month_key,
@@ -94,7 +94,7 @@ def get_monthly_analytics(
         "summary": summary
     }
 
-    # ---------- 5️⃣ STORE IN REDIS ----------
+    # ---------- STORE IN REDIS ----------
     set_monthly_analytics_cache(user_id, year, month, response)
 
     return response
