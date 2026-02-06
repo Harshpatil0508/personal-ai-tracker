@@ -1,4 +1,4 @@
-from datetime import timedelta, date
+from datetime import timedelta
 from app.database.database import SessionLocal
 from app.database.models import DailyLog, AIValidation, AIBehaviorProfile
 
@@ -12,41 +12,16 @@ METRIC_WEIGHTS = {
 }
 
 
-def calculate_metric_average(db, user_id, metric, start_date, end_date):
-    logs = (
-        db.query(DailyLog)
-        .filter(
-            DailyLog.user_id == user_id,
-            DailyLog.date >= start_date,
-            DailyLog.date <= end_date,
-            DailyLog.is_auto == False
-        )
-        .all()
-    )
-
-    values = [
-        getattr(log, metric)
-        for log in logs
-        if getattr(log, metric) is not None
-    ]
-
-    if not values:
-        return None
-
-    return sum(values) / len(values)
-
-
 def validate_ai_advice(
     user_id: int,
     ai_type: str,
     ai_ref_id: int,
     metric: str,
-    days_window: int
+    days_window: int = 7
 ):
     db = SessionLocal()
-    today = date.today()
 
-    # ---- Idempotency ----
+    # ---------- IDEMPOTENCY ----------
     exists = (
         db.query(AIValidation)
         .filter_by(
@@ -56,27 +31,76 @@ def validate_ai_advice(
         )
         .first()
     )
+
     if exists:
         db.close()
         return
 
-    # ---- Time windows ----
-    before_start = today - timedelta(days=days_window * 2)
-    before_end = today - timedelta(days=days_window)
-    after_start = today - timedelta(days=days_window)
-    after_end = today
-
-    before_avg = calculate_metric_average(
-        db, user_id, metric, before_start, before_end
-    )
-    after_avg = calculate_metric_average(
-        db, user_id, metric, after_start, after_end
+    # ---------- FETCH ALL USER LOGS ----------
+    logs = (
+        db.query(DailyLog)
+        .filter(
+            DailyLog.user_id == user_id,
+            DailyLog.is_auto == False
+        )
+        .order_by(DailyLog.date)
+        .all()
     )
 
-    if before_avg is None or after_avg is None:
+    # Require minimum history
+    if len(logs) < 5:
         db.close()
         return
 
+    # ---------- ADVICE REFERENCE DATE ----------
+    advice_date = logs[-1].date
+    first_log_date = logs[0].date
+    available_days = (advice_date - first_log_date).days
+
+    # Adaptive window
+    window = min(days_window, max(available_days, 1))
+
+    before_start = advice_date - timedelta(days=window)
+    after_end = advice_date + timedelta(days=window)
+
+    # ---------- BEFORE VALUES ----------
+    before_values = [
+        getattr(l, metric)
+        for l in logs
+        if (
+            l.date >= before_start and
+            l.date < advice_date and
+            getattr(l, metric) is not None
+        )
+    ]
+
+    # Fallback → first real log
+    if not before_values:
+        first_value = getattr(logs[0], metric)
+        if first_value is None:
+            db.close()
+            return
+        before_values = [first_value]
+
+    # ---------- AFTER VALUES ----------
+    after_values = [
+        getattr(l, metric)
+        for l in logs
+        if (
+            l.date > advice_date and
+            l.date <= after_end and
+            getattr(l, metric) is not None
+        )
+    ]
+
+    if not after_values:
+        db.close()
+        return
+
+    before_avg = sum(before_values) / len(before_values)
+    after_avg = sum(after_values) / len(after_values)
+
+    # ---------- WEIGHTED DELTA ----------
     delta = after_avg - before_avg
     weight = METRIC_WEIGHTS.get(metric, 0.5)
     weighted_delta = delta * weight
@@ -88,7 +112,7 @@ def validate_ai_advice(
     else:
         result = "neutral"
 
-    # ---- Store validation ----
+    # ---------- STORE VALIDATION ----------
     validation = AIValidation(
         user_id=user_id,
         ai_type=ai_type,
@@ -103,10 +127,19 @@ def validate_ai_advice(
     db.add(validation)
     db.commit()
 
-    # ---- UPDATE BEHAVIOR PROFILE ----
-    profile = db.query(AIBehaviorProfile).filter_by(user_id=user_id).first()
+    # ---------- UPDATE BEHAVIOR PROFILE ----------
+    profile = (
+        db.query(AIBehaviorProfile)
+        .filter_by(user_id=user_id)
+        .first()
+    )
+
     if not profile:
-        profile = AIBehaviorProfile(user_id=user_id)
+        profile = AIBehaviorProfile(
+            user_id=user_id,
+            successful_advice=0,
+            failed_advice=0
+        )
         db.add(profile)
 
     if result == "improved":
