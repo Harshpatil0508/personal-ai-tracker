@@ -1,6 +1,6 @@
 from datetime import datetime,timezone
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Boolean, Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Integer, String, Float, Numeric, Date, Text,DateTime, ForeignKey, JSON,UniqueConstraint
 from app.database.database import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -61,7 +61,14 @@ class DailyLog(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_user_daily_log"),
+
+        CheckConstraint("work_hours >= 0 AND work_hours <= 24"),
+        CheckConstraint("study_hours >= 0 AND study_hours <= 24"),
+        CheckConstraint("sleep_hours >= 0 AND sleep_hours <= 24"),
+        CheckConstraint("mood_score >= 1 AND mood_score <= 10"),
+        CheckConstraint("goal_completed_percentage >= 0 AND goal_completed_percentage <= 100"),
     )
+
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"), nullable=False, index=True)
