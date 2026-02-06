@@ -49,7 +49,7 @@ def process_user_daily_motivation(self, user_id: int):
 
     with SessionLocal() as db:
         try:
-            # 1️⃣ Check DB if already exists
+            # Check DB if already exists
             exists_today = (
                 db.query(DailyAIMotivation)
                 .filter(
@@ -63,7 +63,7 @@ def process_user_daily_motivation(self, user_id: int):
                 logger.info(f"[USER DAILY JOB] Already exists in DB user={user_id}")
                 return
 
-            # 2️⃣ Check Redis AI output cache
+            # Check Redis AI output cache
             cached_ai = get_daily_ai_cache(user_id, today)
             if cached_ai:
                 logger.info(f"[USER DAILY JOB] Redis cache hit user={user_id}")
@@ -90,7 +90,7 @@ def process_user_daily_motivation(self, user_id: int):
                 # Store AI output in Redis for 24h
                 set_daily_ai_cache(user_id, today, ai_output)
 
-            # 3️⃣ Save in DB + store embedding
+            # Save in DB + store embedding
             save_motivation_and_embedding(db, user_id, ai_output, today)
 
             logger.info(f"[USER DAILY JOB] Success user={user_id}")
