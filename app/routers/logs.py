@@ -1,8 +1,11 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Query
+from sqlalchemy import asc, desc, func
 from sqlalchemy.orm import Session
 from datetime import date,datetime
 from app.cache.ai_output_cache import invalidate_daily_ai_cache
+from app.cache.daily_logs_cache import invalidate_daily_logs_cache
 from app.cache.redis_client import redis_client
 from app.database.models import DailyLog
 from app.schemas import DailyLogCreate, DailyLogUpdate
@@ -43,7 +46,8 @@ def create_daily_log(
     db.add(entry)
     db.commit()
     db.refresh(entry)
-    redis_client.delete(f"daily_logs:{user_id}")
+    invalidate_daily_logs_cache(user_id)
+    # redis_client.delete(f"daily_logs:{user_id}")
 
     return {
         "message": "Daily log saved successfully",
@@ -111,39 +115,79 @@ def get_daily_log_by_date(
     )
     return log
 
-# Fetch all logs
 @router.get("/all-logs")
 def get_all_daily_log(
     user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
-):
-    cache_key = f"daily_logs:{user_id}"
+    db: Session = Depends(get_db),
 
-    # Try Redis
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+
+    start_date: date | None = None,
+    end_date: date | None = None,
+
+    sort: str = Query("desc", pattern="^(asc|desc)$"),
+):
+    """
+    Paginated logs with optional filtering + sorting.
+    Cached for 5 minutes.
+    """
+
+    # cache key must include params
+    cache_key = f"daily_logs:{user_id}:{limit}:{offset}:{start_date}:{end_date}:{sort}"
+
     cached = redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
-    
-    logs = (
-        db.query(DailyLog)
-        .filter(DailyLog.user_id == user_id)
-        .order_by(DailyLog.date.desc())
-        .all()
-    )
 
-    if not logs:
-        raise HTTPException(status_code=400, detail="No logs found for user")
+    query = db.query(DailyLog).filter(DailyLog.user_id == user_id)
 
-    redis_client.setex(
-        cache_key,
-        300,
-        json.dumps(
-            [log.__dict__ for log in logs],
-            default=str
-        )
-    )
+    # filtering
+    if start_date:
+        query = query.filter(DailyLog.date >= start_date)
 
-    return logs
+    if end_date:
+        query = query.filter(DailyLog.date <= end_date)
+
+    # total count (for frontend pagination UI)
+    total = query.with_entities(func.count()).scalar()
+
+    # sorting
+    if sort == "asc":
+        query = query.order_by(asc(DailyLog.date))
+    else:
+        query = query.order_by(desc(DailyLog.date))
+
+    # pagination
+    logs = query.offset(offset).limit(limit).all()
+
+    response = {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "sort": sort,
+        "start_date": str(start_date) if start_date else None,
+        "end_date": str(end_date) if end_date else None,
+        "data": [
+            {
+                "id": log.id,
+                "date": str(log.date),
+                "work_hours": log.work_hours,
+                "study_hours": log.study_hours,
+                "sleep_hours": log.sleep_hours,
+                "mood_score": log.mood_score,
+                "goal_completed_percentage": log.goal_completed_percentage,
+                "notes": log.notes,
+                "is_auto": log.is_auto,
+            }
+            for log in logs
+        ]
+    }
+
+    # cache response for 5 minutes
+    redis_client.setex(cache_key, 300, json.dumps(response, default=str))
+
+    return response
 
 # Delete today's log
 @router.delete("/today")
@@ -172,8 +216,8 @@ def delete_daily_log_by_date(
 
     db.delete(log)
     db.commit()
-
-    redis_client.delete(f"daily_logs:{user_id}")
+    invalidate_daily_logs_cache(user_id)
+    # redis_client.delete(f"daily_logs:{user_id}")
 
 
     return {"message": "Daily log deleted successfully"}
@@ -209,9 +253,9 @@ def update_log_by_date(
 
     db.commit()
     db.refresh(log)
-    invalidate_daily_ai_cache(user_id, log_date)
+    invalidate_daily_logs_cache(user_id)
 
-    redis_client.delete(f"daily_logs:{user_id}")
+    # redis_client.delete(f"daily_logs:{user_id}")
 
 
     return {
@@ -231,8 +275,8 @@ def delete_all_daily_log(
     ).delete()
     
     db.commit()
-
-    redis_client.delete(f"daily_logs:{user_id}")
+    invalidate_daily_logs_cache(user_id)
+    # redis_client.delete(f"daily_logs:{user_id}")
 
     
     return {"message": "User's all daily logs deleted"}
