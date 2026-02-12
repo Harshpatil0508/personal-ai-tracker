@@ -1,5 +1,5 @@
 import logging
-from datetime import date
+from datetime import date, datetime,timezone
 from sqlalchemy import distinct
 from celery.signals import task_failure
 
@@ -7,14 +7,28 @@ from app.backgroundTask.celery_app import celery
 from app.ai import generate_daily_motivation
 from app.aiEmbeddings.vector_store import store_embedding
 from app.database.database import SessionLocal
-from app.database.models import DailyAIMotivation, DailyLog
-
+from app.database.models import DailyAIMotivation, DailyLog, DeadLetterTask
+from celery import Task
 from app.cache.ai_output_cache import (
     get_daily_ai_cache,
     set_daily_ai_cache,
 )
 
 logger = logging.getLogger(__name__)
+
+class DailyMotivationTask(Task):
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        user_id = args[0]
+
+        logger.critical(
+            f"[USER DAILY JOB] FINAL FAILURE user={user_id} task_id={task_id} error={exc}"
+        )
+
+        send_to_dead_letter.delay(
+            user_id=user_id,
+            source="daily_motivation",
+            error=str(exc),
+        )
 
 
 @celery.task(bind=True)
@@ -36,19 +50,23 @@ def daily_job_dispatcher(self):
 
 @celery.task(
     bind=True,
+    base=DailyMotivationTask,
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
     retry_kwargs={"max_retries": 5},
 )
+
 def process_user_daily_motivation(self, user_id: int):
     logger.info(f"[USER DAILY JOB] Start user={user_id}")
+    
 
     today = date.today()
 
     with SessionLocal() as db:
         try:
+            raise Exception("test failure")
             # Check DB if already exists
             exists_today = (
                 db.query(DailyAIMotivation)
@@ -98,9 +116,7 @@ def process_user_daily_motivation(self, user_id: int):
         except Exception as e:
             db.rollback()
             logger.exception(f"[USER DAILY JOB] HARD FAIL user={user_id}")
-
-            send_to_dead_letter.delay(user_id, str(e))
-            raise
+            raise 
 
 
 def build_context(logs):
@@ -180,8 +196,24 @@ def save_motivation_and_embedding(db, user_id, ai_output, today):
 
 
 @celery.task
-def send_to_dead_letter(user_id, error):
-    logger.critical(f"[DAILY DEAD LETTER] user={user_id} permanently failed → {error}")
+def send_to_dead_letter(user_id: int, source: str, error: str):
+    """
+    Stores failed Celery tasks into DB for monitoring + debugging.
+    """
+
+    logger.critical(f"[DLQ] source={source} user={user_id} error={error}")
+
+    with SessionLocal() as db:
+        dlq = DeadLetterTask(
+            user_id=user_id,
+            source=source,
+            error=error,
+            status="failed",
+            created_at=datetime.now(timezone.utc),
+        )
+
+        db.add(dlq)
+        db.commit()
 
 
 @task_failure.connect

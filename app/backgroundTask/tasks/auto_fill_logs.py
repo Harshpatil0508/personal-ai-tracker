@@ -1,9 +1,9 @@
 from app.backgroundTask.celery_app import celery
 from sqlalchemy import exists
-from datetime import date
+from datetime import date, datetime, timezone
 import logging
 from app.database.database import SessionLocal
-from app.database.models import DailyLog, User
+from app.database.models import DailyLog, DeadLetterTask, User
 logger = logging.getLogger(__name__)
 
 @celery.task(bind=True,autoretry_for=(Exception,), retry_kwargs={"max_retries": 3, "countdown": 60})
@@ -87,10 +87,23 @@ def process_user_auto_daily_log(self, user_id: int, today: date):
             raise e
 
 @celery.task
-def send_to_dead_letter(user_id, source, error):
-    logger.critical(
-        f"[DLQ] {source} user={user_id} permanently failed → {error}"
-    )
+@celery.task
+def send_to_dead_letter(user_id: int, source: str, error: str):
+    """
+    Stores failed Celery tasks into DB for monitoring + debugging.
+    """
 
-    # insert into dead_letter table
-    # email
+    logger.critical(f"[DLQ] source={source} user={user_id} error={error}")
+
+    with SessionLocal() as db:
+        dlq = DeadLetterTask(
+            user_id=user_id,
+            source=source,
+            error=error,
+            status="failed",
+            created_at=datetime.now(timezone.utc),
+        )
+
+        db.add(dlq)
+        db.commit()
+
