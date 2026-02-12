@@ -1,8 +1,9 @@
+from datetime import datetime, timezone
 from app.backgroundTask.celery_app import celery
 from sqlalchemy import text
 import logging
 from app.database.database import SessionLocal
-from app.database.models import AIValidation
+from app.database.models import AIValidation, DeadLetterTask
 from app.validation import validate_ai_advice
 
 
@@ -91,9 +92,21 @@ def validate_single_monthly_ai(self, review_id: int, user_id: int):
 
 
 @celery.task
-def send_to_dead_letter(user_id, source, error):
-    logger.critical(
-        f"[DLQ] {source} user={user_id} permanently failed → {error}"
-    )
-    # insert into dead_letter table
-    # email
+def send_to_dead_letter(user_id: int, source: str, error: str):
+    """
+    Stores failed Celery tasks into DB for monitoring + debugging.
+    """
+
+    logger.critical(f"[DLQ] source={source} user={user_id} error={error}")
+
+    with SessionLocal() as db:
+        dlq = DeadLetterTask(
+            user_id=user_id,
+            source=source,
+            error=error,
+            status="failed",
+            created_at=datetime.now(timezone.utc),
+        )
+
+        db.add(dlq)
+        db.commit()

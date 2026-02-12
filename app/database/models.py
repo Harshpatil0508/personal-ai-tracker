@@ -54,6 +54,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    dead_letter_tasks = relationship(
+        "DeadLetterTask",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
 
 class DailyLog(Base):
@@ -287,3 +292,20 @@ class AIValidation(Base):
     )
 
     user = relationship("User", back_populates="ai_validation")
+
+
+
+class DeadLetterTask(Base):
+    __tablename__ = "dead_letter_tasks"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    source = Column(String(100), nullable=False)  # daily_job, monthly_job, etc.
+
+    error = Column(Text, nullable=False)
+
+    status = Column(String(20), default="failed")  # failed/resolved
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="dead_letter_tasks")

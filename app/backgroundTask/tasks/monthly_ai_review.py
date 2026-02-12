@@ -4,7 +4,7 @@ from datetime import datetime, timezone, date
 from app.aiEmbeddings.vector_store import store_embedding
 from app.backgroundTask.celery_app import celery
 from app.database.database import SessionLocal
-from app.database.models import DailyLog, MonthlyAIReview
+from app.database.models import DailyLog, DeadLetterTask, MonthlyAIReview
 from app.ai import generate_monthly_review
 from app.utils.utils import get_user_monthly_window
 
@@ -67,7 +67,7 @@ def process_user_monthly_review(self, user_id: int):
                 today
             )
 
-            # 1️⃣ Check DB first
+            # Check DB first
             exists_review = (
                 db.query(MonthlyAIReview)
                 .filter(
@@ -81,7 +81,7 @@ def process_user_monthly_review(self, user_id: int):
                 logger.info(f"[MONTHLY USER JOB] Already exists in DB user={user_id}")
                 return
 
-            # 2️⃣ Check Redis AI cache
+            # Check Redis AI cache
             cached_ai = get_monthly_ai_cache(user_id, window_label)
             if cached_ai:
                 logger.info(f"[MONTHLY USER JOB] Redis cache hit user={user_id}")
@@ -115,7 +115,7 @@ def process_user_monthly_review(self, user_id: int):
                 # Store AI output in Redis (40 days)
                 set_monthly_ai_cache(user_id, window_label, ai_output)
 
-            # 3️⃣ Save DB record
+            # Save DB record
             review = MonthlyAIReview(
                 user_id=user_id,
                 month=window_label,
@@ -128,7 +128,7 @@ def process_user_monthly_review(self, user_id: int):
             db.commit()
             db.refresh(review)
 
-            # 4️⃣ Store embedding
+            # Store embedding
             try:
                 store_embedding(
                     db=db,
@@ -205,5 +205,21 @@ def safe_generate_monthly_review(user_id: int, start_date, end_date, timeline):
 
 
 @celery.task
-def send_to_dead_letter(user_id, source, error):
-    logger.critical(f"[MONTHLY DLQ] {source} user={user_id} permanently failed → {error}")
+def send_to_dead_letter(user_id: int, source: str, error: str):
+    """
+    Stores failed Celery tasks into DB for monitoring + debugging.
+    """
+
+    logger.critical(f"[DLQ] source={source} user={user_id} error={error}")
+
+    with SessionLocal() as db:
+        dlq = DeadLetterTask(
+            user_id=user_id,
+            source=source,
+            error=error,
+            status="failed",
+            created_at=datetime.now(timezone.utc),
+        )
+
+        db.add(dlq)
+        db.commit()

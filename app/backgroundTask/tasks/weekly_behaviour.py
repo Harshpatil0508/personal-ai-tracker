@@ -1,10 +1,11 @@
+from datetime import datetime, timezone
 import logging
 from sqlalchemy import distinct
 
 from app.ai_behavior import update_behavior_profile
 from app.backgroundTask.celery_app import celery
 from app.database.database import SessionLocal
-from app.database.models import AIFeedback
+from app.database.models import AIFeedback, DeadLetterTask
 
 logger = logging.getLogger(__name__)
 
@@ -71,15 +72,23 @@ def process_user_behavior_profile(self, user_id: int):
 
 
 @celery.task(bind=True)
-def send_to_dead_letter(self, user_id: int, source: str, error: str):
+@celery.task
+def send_to_dead_letter(user_id: int, source: str, error: str):
     """
-    Dead letter handler (future: store in DB + send email)
+    Stores failed Celery tasks into DB for monitoring + debugging.
     """
-    logger.critical(
-        f"[DLQ] {source} user={user_id} permanently failed → {error}"
-    )
 
-    # TODO:
-    # 1) Insert into dead_letter table
-    # 2) Send async email alert
-    return {"status": "stored", "user_id": user_id, "source": source}
+    logger.critical(f"[DLQ] source={source} user={user_id} error={error}")
+
+    with SessionLocal() as db:
+        dlq = DeadLetterTask(
+            user_id=user_id,
+            source=source,
+            error=error,
+            status="failed",
+            created_at=datetime.now(timezone.utc),
+        )
+
+        db.add(dlq)
+        db.commit()
+
