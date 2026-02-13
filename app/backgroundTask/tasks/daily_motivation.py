@@ -66,7 +66,7 @@ def process_user_daily_motivation(self, user_id: int):
 
     with SessionLocal() as db:
         try:
-            raise Exception("test failure")
+            # raise Exception("test failure")
             # Check DB if already exists
             exists_today = (
                 db.query(DailyAIMotivation)
