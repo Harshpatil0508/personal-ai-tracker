@@ -24,11 +24,12 @@ class DailyMotivationTask(Task):
             f"[USER DAILY JOB] FINAL FAILURE user={user_id} task_id={task_id} error={exc}"
         )
 
-        send_to_dead_letter.delay(
-            user_id=user_id,
-            source="daily_motivation",
-            error=str(exc),
-        )
+        if self.request.retries >= self.max_retries:
+            send_to_dead_letter.delay(
+                user_id=user_id,
+                source="daily_motivation",
+                error=str(exc),
+            )
 
 
 @celery.task(bind=True)

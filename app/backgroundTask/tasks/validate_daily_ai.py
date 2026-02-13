@@ -18,11 +18,12 @@ class DailyAIValidationTask(Task):
             f"[DAILY AI VALIDATION] FINAL FAILURE motivation_id={motivation_id} user={user_id} task_id={task_id} error={exc}"
         )
 
-        send_to_dead_letter.delay(
-            user_id=user_id,
-            source="daily_ai_validation",
-            error=str(exc),
-        )
+        if self.request.retries >= self.max_retries:
+            send_to_dead_letter.delay(
+                user_id=user_id,
+                source="daily_ai_validation",
+                error=str(exc),
+            )
 
 @celery.task(bind=True)
 def validate_daily_ai_dispatcher(self):
@@ -62,7 +63,7 @@ def validate_single_daily_ai(self, motivation_id: int, user_id: int):
 
     with SessionLocal() as db:
         try:
-            raise Exception("test failure")
+            # raise Exception("test failure")
             already_validated = (
                 db.query(AIValidation)
                 .filter_by(
