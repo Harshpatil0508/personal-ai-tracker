@@ -16,11 +16,12 @@ class AutoLogsTask(Task):
             f"[USER AUTO FILL LOGS JOB] FINAL FAILURE user={user_id} task_id={task_id} error={exc}"
         )
 
-        send_to_dead_letter.delay(
-            user_id=user_id,
-            source="auto_daily_log",
-            error=str(exc),
-        )
+        if self.request.retries >= self.max_retries:
+            send_to_dead_letter.delay(
+                user_id=user_id,
+                source="auto_daily_log",
+                error=str(exc),
+            )
 
 @celery.task(bind=True,autoretry_for=(Exception,), retry_kwargs={"max_retries": 3, "countdown": 60})
 def auto_fill_daily_logs(self):
@@ -54,7 +55,7 @@ def process_user_auto_daily_log(self, user_id: int, today: date):
 
     with SessionLocal() as db:
         try:
-            raise Exception("test failure")
+            # raise Exception("test failure")
             exists_today = (
                 db.query(DailyLog)
                 .filter(

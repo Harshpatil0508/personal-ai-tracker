@@ -7,7 +7,7 @@ from app.database.database import SessionLocal
 from app.database.models import DailyLog, DeadLetterTask, MonthlyAIReview
 from app.ai import generate_monthly_review
 from app.utils.utils import get_user_monthly_window
-
+from celery import Task
 from app.cache.ai_output_cache import (
     get_monthly_ai_cache,
     set_monthly_ai_cache,
@@ -15,6 +15,20 @@ from app.cache.ai_output_cache import (
 
 logger = logging.getLogger(__name__)
 
+class MonthlyReviewTask(Task):
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        user_id = args[0]
+
+        logger.critical(
+            f"[USER MONTHLY JOB] FINAL FAILURE user={user_id} task_id={task_id} error={exc}"
+        )
+
+        if self.request.retries >= self.max_retries:
+            send_to_dead_letter.delay(
+                user_id=user_id,
+                source="monthly_ai_review",
+                error=str(exc),
+            )
 
 @celery.task(bind=True)
 def monthly_job_dispatcher(self):
@@ -39,6 +53,7 @@ def monthly_job_dispatcher(self):
 
 @celery.task(
     bind=True,
+    base=MonthlyReviewTask,
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=1800,
@@ -50,6 +65,7 @@ def process_user_monthly_review(self, user_id: int):
 
     with SessionLocal() as db:
         try:
+            # raise Exception("test failure")
             today = date.today()
 
             first_log = (
@@ -147,12 +163,6 @@ def process_user_monthly_review(self, user_id: int):
         except Exception as e:
             db.rollback()
             logger.exception(f"[MONTHLY USER JOB] HARD FAIL user={user_id}")
-
-            send_to_dead_letter.delay(
-                user_id=user_id,
-                source="monthly_review",
-                error=str(e),
-            )
             raise
 
 

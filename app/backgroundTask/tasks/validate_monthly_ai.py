@@ -5,9 +5,25 @@ import logging
 from app.database.database import SessionLocal
 from app.database.models import AIValidation, DeadLetterTask
 from app.validation import validate_ai_advice
-
+from celery import Task
 
 logger = logging.getLogger(__name__)
+
+class MonthlyAIValidationTask(Task):
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        review_id = args[0]
+        user_id = args[1]
+
+        logger.critical(
+            f"[MONTHLY AI VALIDATION] FINAL FAILURE review_id={review_id} user={user_id} task_id={task_id} error={exc}"
+        )
+
+        if self.request.retries >= self.max_retries:
+            send_to_dead_letter.delay(
+                user_id=user_id,
+                source="monthly_ai_validation",
+                error=str(exc),
+            )
 
 @celery.task(bind=True)
 def validate_monthly_ai_dispatcher(self):
@@ -25,7 +41,6 @@ def validate_monthly_ai_dispatcher(self):
 
     for r in reviews:
         validate_single_monthly_ai.delay(r.id, r.user_id)
-
     logger.info(
         f"[MONTHLY AI VALIDATION] Dispatched {len(reviews)} validation tasks"
     )
@@ -33,6 +48,7 @@ def validate_monthly_ai_dispatcher(self):
 
 @celery.task(
     bind=True,
+    base=MonthlyAIValidationTask,
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=1800,   # up to 30 minutes
@@ -47,6 +63,7 @@ def validate_single_monthly_ai(self, review_id: int, user_id: int):
 
     with SessionLocal() as db:
         try:
+            # raise Exception("test failure")
             already_validated = (
                 db.query(AIValidation)
                 .filter_by(
@@ -81,14 +98,7 @@ def validate_single_monthly_ai(self, review_id: int, user_id: int):
             logger.exception(
                 f"[MONTHLY AI VALIDATION] HARD FAIL id={review_id}"
             )
-
-            send_to_dead_letter.delay(
-                user_id=user_id,
-                source="monthly_ai_validation",
-                error=f"id={review_id} | {str(e)}",
-            )
-
-            raise e
+            raise
 
 
 @celery.task

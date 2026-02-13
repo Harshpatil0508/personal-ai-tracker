@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import logging
 from sqlalchemy import distinct
-
+from celery import Task
 from app.ai_behavior import update_behavior_profile
 from app.backgroundTask.celery_app import celery
 from app.database.database import SessionLocal
@@ -9,6 +9,20 @@ from app.database.models import AIFeedback, DeadLetterTask
 
 logger = logging.getLogger(__name__)
 
+class BehaviorProfileTask(Task):
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        user_id = args[0]
+
+        logger.critical(
+            f"[BEHAVIOR USER JOB] FINAL FAILURE user={user_id} task_id={task_id} error={exc}"
+        )
+
+        if self.request.retries >= self.max_retries:
+            send_to_dead_letter.delay(
+                user_id=user_id,
+                source="weekly_behavior_profile",
+                error=str(exc),
+            )
 
 @celery.task(bind=True)
 def weekly_behavior_profile_dispatcher(self):
@@ -36,6 +50,7 @@ def weekly_behavior_profile_dispatcher(self):
 
 @celery.task(
     bind=True,
+    base=BehaviorProfileTask,
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=1800,  # up to 30 minutes
@@ -50,6 +65,7 @@ def process_user_behavior_profile(self, user_id: int):
 
     with SessionLocal() as db:
         try:
+            raise Exception("test failure")
             update_behavior_profile(db, user_id)
 
             logger.info(f"[BEHAVIOR USER JOB] Updated profile user={user_id}")
@@ -62,16 +78,8 @@ def process_user_behavior_profile(self, user_id: int):
                 f"[BEHAVIOR USER JOB] HARD FAIL user={user_id} error={str(e)}"
             )
 
-            send_to_dead_letter.delay(
-                user_id=user_id,
-                source="weekly_behavior_profile",
-                error=str(e),
-            )
-
             raise
 
-
-@celery.task(bind=True)
 @celery.task
 def send_to_dead_letter(user_id: int, source: str, error: str):
     """
