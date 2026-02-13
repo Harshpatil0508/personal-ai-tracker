@@ -54,7 +54,7 @@ def process_user_auto_daily_log(self, user_id: int, today: date):
 
     with SessionLocal() as db:
         try:
-            raise Exception("test failure")
+            # raise Exception("test failure")
             exists_today = (
                 db.query(DailyLog)
                 .filter(

@@ -6,9 +6,23 @@ from app.database.models import AIValidation
 from app.validation import validate_ai_advice
 from datetime import datetime, timezone
 from app.database.models import DeadLetterTask
-
+from celery import Task
 logger = logging.getLogger(__name__)
 
+class DailyAIValidationTask(Task):
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        motivation_id = args[0]
+        user_id = args[1]
+
+        logger.critical(
+            f"[DAILY AI VALIDATION] FINAL FAILURE motivation_id={motivation_id} user={user_id} task_id={task_id} error={exc}"
+        )
+
+        send_to_dead_letter.delay(
+            user_id=user_id,
+            source="daily_ai_validation",
+            error=str(exc),
+        )
 
 @celery.task(bind=True)
 def validate_daily_ai_dispatcher(self):
@@ -33,6 +47,7 @@ def validate_daily_ai_dispatcher(self):
 
 @celery.task(
     bind=True,
+    base=DailyAIValidationTask,
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=900,   # up to 15 minutes
@@ -47,6 +62,7 @@ def validate_single_daily_ai(self, motivation_id: int, user_id: int):
 
     with SessionLocal() as db:
         try:
+            raise Exception("test failure")
             already_validated = (
                 db.query(AIValidation)
                 .filter_by(
@@ -82,13 +98,7 @@ def validate_single_daily_ai(self, motivation_id: int, user_id: int):
                 f"[DAILY AI VALIDATION] HARD FAIL id={motivation_id}"
             )
 
-            send_to_dead_letter.delay(
-                user_id=user_id,
-                source="daily_ai_validation",
-                error=f"id={motivation_id} | {str(e)}",
-            )
-
-            raise e
+            raise 
 
 @celery.task
 def send_to_dead_letter(user_id: int, source: str, error: str):
