@@ -146,3 +146,5 @@ alembic/versions/
 # Database
 *.db
 *.sqlite
+
+/uplopads/*

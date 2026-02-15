@@ -29,6 +29,8 @@ packaging==25.0
 pandas==2.3.3
 passlib==1.7.4
 pgvector==0.4.2
+prometheus-fastapi-instrumentator==7.1.0
+prometheus_client==0.24.1
 prompt_toolkit==3.0.52
 psycopg2-binary==2.9.11
 pyasn1==0.6.1
@@ -37,6 +39,7 @@ pydantic_core==2.41.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 python-jose==3.5.0
+python-json-logger==4.0.0
 pytz==2025.2
 redis==7.1.0
 requests==2.32.5
