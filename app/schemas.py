@@ -81,3 +81,43 @@ class AIFeedbackCreate(BaseModel):
     source: str
     source_id: int
     is_helpful: bool
+
+
+from pydantic import BaseModel
+
+class UserProfileOut(BaseModel):
+    id: int
+    email: str
+    name: str
+    avatar_url: str | None
+
+    daily_reminder: bool
+    weekly_digest: bool
+    monthly_review: bool
+    ai_motivation: bool
+
+class UpdateProfile(BaseModel):
+    name: str
+
+class UpdatePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+class UpdatePreferences(BaseModel):
+    daily_reminder: bool
+    weekly_digest: bool
+    monthly_review: bool
+    ai_motivation: bool
+
+class DailyAnalyticsPoint(BaseModel):
+    day: int
+    mood: float
+    sleep: float
+    work: float
+    goals: float
+
+
+class MonthlyAnalyticsResponse(BaseModel):
+    month: str
+    daily_data: list[DailyAnalyticsPoint]
+    summary: dict

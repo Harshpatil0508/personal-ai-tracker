@@ -1,6 +1,4 @@
-import json
 from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -14,55 +12,46 @@ from app.cache.monthly_analytics_cache import (
     set_monthly_analytics_cache,
 )
 
-
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
 @router.get("/monthly", response_model=MonthlyAnalyticsResponse)
 def get_monthly_analytics(
     user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    today = datetime.today()
-    year = today.year
-    month = today.month
+    today = datetime.utcnow()
     month_key = today.strftime("%Y-%m")
 
-    # ---------- REDIS CACHE FIRST ----------
-    cached = get_monthly_analytics_cache(user_id, year, month)
+    # ---------- CACHE ----------
+    cached = get_monthly_analytics_cache(user_id, today.year, today.month)
     if cached:
         return cached
 
-    # ---------- DB CHECK (PERSISTED ANALYTICS) ----------
-    analytics = (
-        db.query(MonthlyAnalytics)
-        .filter(
-            MonthlyAnalytics.user_id == user_id,
-            MonthlyAnalytics.month == month_key
-        )
-        .first()
-    )
-
-    if analytics:
-        response = {
-            "month": month_key,
-            "summary": analytics.summary
-        }
-
-        # Cache DB result
-        set_monthly_analytics_cache(user_id, year, month, response)
-        return response
-
-    # ---------- COMPUTE FROM DAILY LOGS ----------
+    # ---------- FETCH LOGS ----------
     logs = (
         db.query(DailyLog)
         .filter(DailyLog.user_id == user_id)
+        .order_by(DailyLog.created_at.asc())
         .all()
     )
 
     if not logs:
         raise HTTPException(status_code=400, detail="Not enough data")
 
+    # ---------- DAILY DATA FOR CHART ----------
+    daily_data = [
+        {
+            "day": l.created_at.day,
+            "mood": l.mood_score,
+            "sleep": l.sleep_hours,
+            "work": l.work_hours,
+            "goals": l.goal_completed_percentage,
+        }
+        for l in logs
+    ]
+
+    # ---------- SUMMARY ----------
     logs_data = [
         {
             "work_hours": l.work_hours,
@@ -79,22 +68,22 @@ def get_monthly_analytics(
     if not summary:
         raise HTTPException(status_code=400, detail="Not enough data")
 
-    # ---------- STORE IN DB ----------
+    # ---------- STORE MONTHLY ----------
     analytics = MonthlyAnalytics(
         user_id=user_id,
         month=month_key,
-        summary=summary
+        summary=summary,
     )
 
-    db.add(analytics)
+    db.merge(analytics)
     db.commit()
 
     response = {
         "month": month_key,
-        "summary": summary
+        "summary": summary,
+        "daily_data": daily_data,
     }
 
-    # ---------- STORE IN REDIS ----------
-    set_monthly_analytics_cache(user_id, year, month, response)
+    set_monthly_analytics_cache(user_id, today.year, today.month, response)
 
     return response

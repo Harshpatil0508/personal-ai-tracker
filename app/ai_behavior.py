@@ -30,7 +30,6 @@ def update_behavior_profile(db, user_id: int):
     actionable_score = 0
 
     
-
     for row in rows:
         text_content = (row.content or "").lower()
         delta = 1 if row.is_helpful else -1

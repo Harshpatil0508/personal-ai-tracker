@@ -13,7 +13,21 @@ class User(Base):
     password_hash = Column(String)
     role = Column(String, default="user")  # user | admin
     token_version = Column(Integer, default=1)
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete")
+
+    # Avatar
+    avatar_url = Column(String, nullable=True)
+
+    # Notification / AI Preferences
+    daily_reminder = Column(Boolean, default=True)
+    weekly_digest = Column(Boolean, default=True)
+    monthly_review = Column(Boolean, default=True)
+    ai_motivation = Column(Boolean, default=True)
+
+    refresh_tokens = relationship(
+        "RefreshToken",
+        back_populates="user",
+        cascade="all, delete"
+    )
     daily_logs = relationship(
         "DailyLog",
         back_populates="user",
