@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.middleware.timing import TimingMiddleware
-from app.routers import auth, dead_letters, health, logs, analytics, admin, test, ai_feedback,ai_validation, users
+from app.routers import auth, daily_ai_motivation, dead_letters, health, logs, analytics, admin, test, ai_feedback,ai_validation, users
 from app.middleware.throttel import ThrottleMiddleware
 from app.logging_config import setup_logging
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +31,7 @@ app.include_router(ai_validation.router)
 app.include_router(health.router)
 app.include_router(dead_letters.router)
 app.include_router(users.router)
+app.include_router(daily_ai_motivation.router)
 
 from fastapi.staticfiles import StaticFiles
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
