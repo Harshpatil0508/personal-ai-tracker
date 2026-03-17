@@ -42,3 +42,10 @@ Daily Logs → Analytics → Behavior Change Detection → Explainable AI → Fe
 
 ## Status
 🚧 In active development
+
+## Code Access
+
+- The `dev` branch contains the latest working version of the project
+- The `main` branch is reserved for stable releases
+
+👉 Always create PRs against the `dev` branch
