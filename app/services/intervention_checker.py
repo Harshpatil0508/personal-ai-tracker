@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.database.models import DailyLog, User
+from app.database.models import DailyLog
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,8 @@ def check_mood_spiral(db: Session, user_id: int) -> tuple:
     )
 
     low_days = sum(
-        1 for l in logs
-        if l.morning_feeling_score and l.morning_feeling_score <= 3
+        1 for log in logs
+        if log.morning_feeling_score and log.morning_feeling_score <= 3
     )
 
     if low_days >= 3:

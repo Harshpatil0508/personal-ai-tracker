@@ -1,13 +1,12 @@
-import json
-import re
 import logging
+from datetime import date
+from calendar import monthrange
 
 logger = logging.getLogger(__name__)
 
 
 #-------- MONTHLY WINDOW UTILITIES --------
-from datetime import date
-from calendar import monthrange
+
 
 
 def get_user_monthly_window(first_log_date: date, now: date):

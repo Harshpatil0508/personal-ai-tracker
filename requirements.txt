@@ -15,6 +15,7 @@ click-repl==0.3.0
 distro==1.9.0
 ecdsa==0.19.1
 fastapi==0.128.0
+flake8==7.3.0
 greenlet==3.3.0
 groq==1.0.0
 h11==0.16.0
@@ -24,6 +25,7 @@ idna==3.11
 kombu==5.6.2
 Mako==1.3.10
 MarkupSafe==3.0.3
+mccabe==0.7.0
 numpy==2.4.1
 packaging==25.0
 pandas==2.3.3
@@ -34,12 +36,16 @@ prometheus_client==0.24.1
 prompt_toolkit==3.0.52
 psycopg2-binary==2.9.11
 pyasn1==0.6.1
+pycodestyle==2.14.0
 pydantic==2.12.5
 pydantic_core==2.41.5
+pyflakes==3.4.0
+PyJWT==2.12.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 python-jose==3.5.0
 python-json-logger==4.0.0
+python-multipart==0.0.22
 pytz==2025.2
 redis==7.1.0
 requests==2.32.5

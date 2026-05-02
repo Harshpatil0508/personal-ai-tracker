@@ -41,7 +41,7 @@ def validate_ai_advice(
         db.query(DailyLog)
         .filter(
             DailyLog.user_id == user_id,
-            DailyLog.is_auto == False
+            DailyLog.is_auto.is_(False)
         )
         .order_by(DailyLog.date)
         .all()
@@ -65,12 +65,12 @@ def validate_ai_advice(
 
     # ---------- BEFORE VALUES ----------
     before_values = [
-        getattr(l, metric)
-        for l in logs
+        getattr(log, metric)
+        for log in logs
         if (
-            l.date >= before_start and
-            l.date < advice_date and
-            getattr(l, metric) is not None
+            log.date >= before_start and
+            log.date < advice_date and
+            getattr(log, metric) is not None
         )
     ]
 
@@ -84,12 +84,12 @@ def validate_ai_advice(
 
     # ---------- AFTER VALUES ----------
     after_values = [
-        getattr(l, metric)
-        for l in logs
+        getattr(log, metric)
+        for log in logs
         if (
-            l.date > advice_date and
-            l.date <= after_end and
-            getattr(l, metric) is not None
+            log.date > advice_date and
+            log.date <= after_end and
+            getattr(log, metric) is not None
         )
     ]
 

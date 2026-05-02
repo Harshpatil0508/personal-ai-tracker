@@ -5,7 +5,8 @@ Profile management, password change, avatar upload.
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-import uuid, os
+import uuid
+import os
 
 from app.database.db import get_db
 from app.database.models import User

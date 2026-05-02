@@ -4,7 +4,6 @@ Request/response validation for all endpoints.
 """
 
 from datetime import date, datetime
-from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 

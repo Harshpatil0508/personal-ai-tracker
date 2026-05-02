@@ -8,7 +8,6 @@ import json
 import logging
 
 from groq import Groq
-from sqlalchemy.orm import Session
 
 from app.config import GROQ_API_KEY
 from app.security.circuit_breaker import is_circuit_open, record_failure, record_success

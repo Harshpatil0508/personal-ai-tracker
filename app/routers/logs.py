@@ -3,7 +3,6 @@ REFLECTA — Daily Logs Router
 Morning and evening check-ins with silent AI extraction.
 """
 
-import json
 import logging
 from datetime import datetime
 
