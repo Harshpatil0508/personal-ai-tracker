@@ -85,6 +85,7 @@ class User(Base):
     person_model        = relationship("PersonModel",       back_populates="user", uselist=False, cascade="all, delete-orphan")
     memory_embeddings   = relationship("MemoryEmbedding",   back_populates="user", cascade="all, delete-orphan")
     dead_letter_tasks   = relationship("DeadLetterTask",    back_populates="user", cascade="all, delete-orphan")
+    interventions       = relationship("InterventionLog",   back_populates="user", cascade="all, delete-orphan")
 
 
 # ─── ONBOARDING (captured once at signup) ────────────────────────
@@ -248,6 +249,25 @@ class MemoryEmbedding(Base):
     )
 
     user = relationship("User", back_populates="memory_embeddings")
+
+
+# ─── INTERVENTION LOGS ──────────────────────────────────────────
+class InterventionLog(Base):
+    __tablename__ = "intervention_logs"
+
+    id      = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    check_name  = Column(String(100), nullable=False)   # "check_mood_spiral"
+    severity    = Column(String(20), nullable=False)    # "high", "critical"
+    message     = Column(Text, nullable=False)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    user = relationship("User", back_populates="interventions")
 
 
 # ─── AUTH ────────────────────────────────────────────────────────

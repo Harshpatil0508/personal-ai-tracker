@@ -8,8 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
-
-from app.database.models import DailyLog
+from app.database.models import DailyLog, InterventionLog
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +141,7 @@ ALL_CHECKS = [
 def run_intervention_checks(db: Session, user_id: int) -> list[dict]:
     """
     Run all intervention checks. Returns list of triggered interventions.
+    Saves triggered events to InterventionLog table.
     Called after evening log submission.
     """
     interventions = []
@@ -150,16 +150,30 @@ def run_intervention_checks(db: Session, user_id: int) -> list[dict]:
         try:
             triggered, severity, message = check_fn(db, user_id)
             if triggered:
+                # 1. Add to response list
                 interventions.append({
                     "check": check_fn.__name__,
                     "severity": severity,
                     "message": message,
                 })
+
+                # 2. Persist to DB
+                log_entry = InterventionLog(
+                    user_id=user_id,
+                    check_name=check_fn.__name__,
+                    severity=severity,
+                    message=message
+                )
+                db.add(log_entry)
+
                 logger.warning(
-                    f"[INTERVENTION] {check_fn.__name__} triggered for user {user_id} "
+                    f"[INTERVENTION] {check_fn.__name__} triggered and saved for user {user_id} "
                     f"(severity={severity})"
                 )
         except Exception as e:
             logger.error(f"[INTERVENTION] {check_fn.__name__} error: {e}")
+
+    if interventions:
+        db.commit()
 
     return interventions

@@ -6,7 +6,7 @@ from collections import Counter
 
 from app.dependencies import require_role
 from app.database.db import get_db
-from app.database.models import User, AIAdvice, PersonModel, DailyLog
+from app.database.models import User, AIAdvice, PersonModel, DailyLog, InterventionLog
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -23,6 +23,7 @@ def get_success_metrics(db: Session = Depends(get_db)):
     - Most common excuse patterns across ALL users
     - Day 1 -> Day 7 retention estimate
     - Total active users
+    - Real-time AI intervention frequency
     """
     total_users = db.query(User).count()
 
@@ -42,6 +43,9 @@ def get_success_metrics(db: Session = Depends(get_db)):
     excuse_counter = Counter(all_excuses)
     top_excuses = [{"excuse": e, "count": c} for e, c in excuse_counter.most_common(10)]
 
+    # Real intervention tracking
+    total_interventions = db.query(InterventionLog).count()
+
     db_users = db.query(User).filter(User.created_at <= datetime.utcnow() - timedelta(days=7)).all()
     eligible_for_retention = len(db_users)
     retained_count = 0
@@ -60,7 +64,7 @@ def get_success_metrics(db: Session = Depends(get_db)):
         "metrics": {
             "average_advice_effectiveness_pct": avg_effectiveness,
             "day_7_retention_rate_pct": retention_rate,
-            "intervention_frequency": "Not tracked natively yet"
+            "total_ai_interventions": total_interventions
         },
         "global_top_excuses": top_excuses
     }
