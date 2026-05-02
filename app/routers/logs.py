@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from datetime import date,datetime
 from app.cache.ai_output_cache import invalidate_daily_ai_cache
 from app.cache.daily_logs_cache import invalidate_daily_logs_cache
+from app.cache.monthly_analytics_cache import invalidate_monthly_analytics_cache
 from app.cache.redis_client import redis_client
 from app.database.models import DailyLog
 from app.schemas import DailyLogCreate, DailyLogUpdate
@@ -48,6 +49,8 @@ def create_daily_log(
     db.refresh(entry)
     invalidate_daily_logs_cache(user_id)
     # redis_client.delete(f"daily_logs:{user_id}")
+    invalidate_daily_ai_cache(user_id, today)
+    invalidate_monthly_analytics_cache(user_id, today)
 
     return {
         "message": "Daily log saved successfully",

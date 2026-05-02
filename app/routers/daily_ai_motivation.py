@@ -39,3 +39,20 @@ def get_today_motivation(
         "date": motivation.date,
         "feedbackGiven": existing_feedback is not None
     }
+
+@router.get("/all")
+def get_all_motivations(
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    motivations = db.query(DailyAIMotivation).filter(
+        DailyAIMotivation.user_id == user_id
+    ).all()
+
+    return [
+        {
+            "id": m.id,
+            "insight": m.insight,
+            "date": m.date
+        } for m in motivations
+    ]
