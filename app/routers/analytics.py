@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import extract
 from sqlalchemy.orm import Session
 
 from app.database.models import DailyLog, MonthlyAnalytics
@@ -29,12 +30,25 @@ def get_monthly_analytics(
         return cached
 
     # ---------- FETCH LOGS ----------
+    # logs = (
+    #     db.query(DailyLog)
+    #     .filter(DailyLog.user_id == user_id)
+    #     .order_by(DailyLog.created_at.asc())
+    #     .all()
+    # )
+    from sqlalchemy import extract
+
     logs = (
         db.query(DailyLog)
-        .filter(DailyLog.user_id == user_id)
+        .filter(
+            DailyLog.user_id == user_id,
+            extract("year", DailyLog.created_at) == today.year,
+            extract("month", DailyLog.created_at) == today.month,
+        )
         .order_by(DailyLog.created_at.asc())
         .all()
     )
+
 
     if not logs:
         raise HTTPException(status_code=400, detail="Not enough data")
