@@ -1,3 +1,8 @@
+"""
+REFLECTA — Users Router
+Profile management, password change, avatar upload.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 import uuid, os
@@ -5,21 +10,36 @@ import uuid, os
 from app.database.db import get_db
 from app.database.models import User
 from app.dependencies import get_current_user_id
-from app.schemas import UpdateProfile, UpdatePassword, UpdatePreferences
+from app.schemas import UpdateProfile, UpdatePassword, UserProfileOut
 from app.auth import verify_password, hash_password
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserProfileOut)
 def get_me(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    return db.query(User).get(user_id)
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserProfileOut(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        avatar_url=user.avatar_url,
+        coach_tone=user.coach_tone.value if hasattr(user.coach_tone, 'value') else user.coach_tone,
+        onboarding_complete=user.onboarding_complete,
+    )
 
 
 @router.patch("/profile")
 def update_profile(payload: UpdateProfile, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
     user = db.query(User).get(user_id)
-    user.name = payload.name
+
+    if payload.name is not None:
+        user.name = payload.name
+    if payload.coach_tone is not None:
+        user.coach_tone = payload.coach_tone
+
     db.commit()
     return {"message": "Profile updated"}
 
@@ -36,17 +56,6 @@ def change_password(payload: UpdatePassword, user_id: int = Depends(get_current_
     db.commit()
 
     return {"message": "Password updated"}
-
-
-@router.patch("/preferences")
-def update_preferences(payload: UpdatePreferences, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    user = db.query(User).get(user_id)
-
-    for k, v in payload.model_dump().items():
-        setattr(user, k, v)
-
-    db.commit()
-    return {"message": "Preferences saved"}
 
 
 @router.post("/avatar")

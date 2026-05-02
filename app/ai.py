@@ -1,358 +1,262 @@
+"""
+REFLECTA — AI Advice Engine
+"The AI that knows you better than you know yourself"
+
+Generates daily coaching advice and monthly narrative reports
+using the Reflecta persona with tone-adaptive prompts.
+"""
+
 import json
 import logging
+
 from groq import Groq
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
 from app.config import GROQ_API_KEY
 from app.database.database import SessionLocal
-from app.database.models import AIBehaviorProfile
-from app.aiEmbeddings.vector_search import semantic_search
-from fastapi import HTTPException
-from app.security.circuit_breaker import (
-    is_circuit_open,
-    record_failure,
-    record_success,
-)
-from app.cache.behavior_profile_cache import get_behavior_profile_cached, invalidate_behavior_profile_cache
-
+from app.database.models import PersonModel
+from app.services.rag_service import semantic_recall
+from app.security.circuit_breaker import is_circuit_open, record_failure, record_success
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
 client = Groq(api_key=GROQ_API_KEY)
 
-# -------- DAILY MOTIVATION --------
-def generate_daily_motivation(context: dict, user_id: int) -> dict:
+
+# ─── TONE MAP ────────────────────────────────────────────────────
+TONE_MAP = {
+    "blunt": "brutally direct — no sugarcoating, call out patterns, name the hard truth",
+    "balanced": "honest but warm — firm coaching with empathy",
+    "push": "aggressive accountability — no excuses accepted, challenge every weakness",
+}
+
+
+# ─── DAILY ADVICE ────────────────────────────────────────────────
+def generate_daily_advice(
+    user_name: str,
+    coach_tone: str,
+    days_active: int,
+    onboarding_data: dict,
+    person_model_data: dict,
+    completion_summary: str,
+    mood_trend: str,
+    stressors: list,
+    excuses: list,
+    morning_score: int | None,
+    morning_text: str | None,
+    evening_text: str | None,
+    goals_completed: int,
+    goals_total: int,
+    user_id: int,
+) -> str:
     """
-    Returns explainable daily motivation.
+    Generates Reflecta daily coaching advice using the full
+    user context and persona-driven tone.
     """
 
-    # ---------- MEMORY ----------
-    if is_circuit_open("jina"):
-        logger.warning("[CIRCUIT OPEN] Vector search unavailable")
-        memory_items = []
-    else:
-        try:
-            with SessionLocal() as db:
-                memory_items = semantic_search(
-                    db=db,
-                    user_id=user_id,
-                    query="recent struggles and motivation",
-                    limit=3
-                )
-            record_success("jina")
-        except Exception as e:
-            record_failure("jina")
-            logger.error(f"[JINA ERROR] {e}")
-            memory_items = []
+    # ── Memory recall via RAG ──
+    rag_context = _get_rag_context(user_id, "recent struggles, patterns, and goals")
 
-    memory_text = "\n".join(
-        f"- {m}" for m in memory_items if len(m) < 300
-    )
-
-    # ---------- LOAD PROFILE ----------
-    with SessionLocal() as db:
-        profile = get_behavior_profile_cached(db, user_id)
-
-    # ---------- DEFAULTS (SAFE BASELINE) ----------
-    tone = "calm and supportive"
-    style = ""
-    behavior_reasons = []
-    avoidance_rules = []
-    system_confidence = 0.4  # SAFE DEFAULT
-
-    if profile:
-        # ---------- PREFERENCE LEARNING ----------
-        if profile.get("prefers_encouraging"):
-            tone = "warm, empathetic, and reassuring"
-            behavior_reasons.append(
-                "User historically responds better to encouraging language"
-            )
-
-        if profile.get("prefers_actionable"):
-            style = "Provide 1-2 concrete, simple actions."
-            behavior_reasons.append(
-                "User prefers actionable guidance based on past feedback"
-            )
-
-        # ---------- HARD AVOIDANCE ----------
-        if profile.get("avoid_repeating_failed"):
-            avoidance_rules.append(
-                "Do NOT repeat advice patterns that previously failed"
-            )
-
-        # ---------- OUTCOME-BASED CONFIDENCE ----------
-        successful = profile.get("successful_advice") or 0
-        failed = profile.get("failed_advice") or 0
-
-        total = successful + failed
-        if total >= 3:
-            success_ratio = successful / max(total, 1)
-            system_confidence = round(
-                min(0.9, max(0.2, success_ratio)),
-                2
-            )
-
-            # Outcome safety overrides preference tone
-            if failed > successful:
-                tone = "gentle, neutral, and low-pressure"
-                behavior_reasons.append(
-                    "Previous advice showed mixed or weak outcomes"
-                )
-            else:
-                behavior_reasons.append(
-                    "Previous advice showed positive outcomes"
-                )
-
-    # ---------- PROMPT ----------
-    constraints_block = (
-        "STRICT CONSTRAINTS:\n" +
-        "\n".join("- " + r for r in avoidance_rules)
-        if avoidance_rules else ""
-    )
+    tone_instruction = TONE_MAP.get(coach_tone, TONE_MAP["balanced"])
 
     prompt = f"""
-You are a {tone} personal coach.
-{style}
+You are Reflecta, a brutally honest AI life coach.
+Your tone is: {coach_tone} — {tone_instruction}
 
-{constraints_block}
+USER PROFILE:
+Name: {user_name}
+Days active: {days_active}
+Onboarding data: {json.dumps(onboarding_data, default=str)}
+Person model: {json.dumps(person_model_data, default=str)}
 
-User memory:
-{memory_text}
+LAST 7 DAYS DATA:
+Goal completion: {completion_summary}
+Mood trend: {mood_trend}
+Top mentioned stressors: {stressors}
+Excuse patterns detected: {excuses}
 
-User context:
-{context}
+RECENT JOURNAL CONTEXT (from memory):
+{rag_context}
 
-Return STRICT JSON ONLY:
-{{
-  "insight": "short motivational message (max 3 lines)",
-  "explanation": {{
-    "why": ["reason1", "reason2"],
-    "data_used": ["metric1", "metric2"],
-    "confidence": number_between_0_and_1,
-    "what_would_change_this": ["condition1"]
-  }}
-}}
+TODAY:
+Morning feeling: {morning_score}/10
+Morning entry: {morning_text or 'Not submitted'}
+Evening entry: {evening_text or 'Not submitted'}
+Goals completed today: {goals_completed}/{goals_total}
 
-Rules:
-- Never ask questions
-- No clichés
-- No generic advice
-- Be human and practical
-- JSON only
+YOUR TASK:
+Write daily coaching advice in 3-5 sentences.
+- Reference specific patterns you've noticed
+- Connect mood data to performance data
+- Give ONE clear actionable instruction for tomorrow
+- If concerning phrases detected, address wellbeing first
+- Do NOT give generic motivation
+- Sound like a coach who actually knows this person
+
+Output only the advice text, no labels or headers.
 """
 
-    if is_circuit_open("groq"):
-        logger.warning("[CIRCUIT OPEN] Groq AI unavailable")
-        raise HTTPException(
-            status_code=503,
-            detail="AI service temporarily unavailable. Please try again later."
-        )
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-        )
-
-        # Success → reset failure counter
-        record_success("groq")
-
-    except Exception as e:
-        # Failure → record & fail fast
-        record_failure("groq")
-        logger.error(f"[GROQ ERROR] {e}")
-
-        raise HTTPException(
-            status_code=503,
-            detail="AI service error. Please retry later."
-        )
-
-    raw = response.choices[0].message.content.strip()
-    logger.info(f"[AI MEMORY USED] {memory_items}")
-
-    # ---------- PARSING ----------
-    try:
-        ai_output = json.loads(raw)
-
-        ai_output.setdefault("insight", "")
-        ai_output.setdefault("explanation", {})
-
-        explanation = ai_output["explanation"]
-        explanation.setdefault("why", [])
-        explanation.setdefault("data_used", list(context.keys()))
-        explanation.setdefault("confidence", system_confidence)
-        explanation.setdefault("what_would_change_this", [])
-
-        # System-truth injection (NOT hallucinated)
-        explanation["why"].extend(behavior_reasons)
-        explanation["why"].append(
-            "Advice adapted using learned user preferences and past outcomes"
-        )
-
-        explanation["confidence"] = round(
-            min(1.0, max(0.0, explanation["confidence"])),
-            2
-        )
-
-        return ai_output
-
-    except Exception as e:
-        logger.warning(f"[DAILY AI] JSON parse failed: {e}")
-
-        return {
-            "insight": raw[:200],
-            "explanation": {
-                "why": [
-                    "Generated using recent user context",
-                    *behavior_reasons
-                ],
-                "data_used": list(context.keys()),
-                "confidence": system_confidence,
-                "what_would_change_this": [
-                    "More consistent daily logs",
-                    "Explicit user feedback on this advice"
-                ]
-            }
-        }
+    return _call_groq(prompt, user_id, "daily_advice")
 
 
-# -------- MONTHLY IN-DEPTH REVIEW --------
-
-def generate_monthly_review(summary: dict, user_id: int) -> dict:
+# ─── MONTHLY REPORT ─────────────────────────────────────────────
+def generate_monthly_report(
+    user_name: str,
+    coach_tone: str,
+    month_name: str,
+    active_days: int,
+    completion_rate: float,
+    best_category: str,
+    best_rate: float,
+    worst_category: str,
+    worst_rate: float,
+    emotion_summary: dict,
+    top_excuse: str,
+    biggest_win: str,
+    mood_direction: str,
+    advice_effectiveness: float,
+    model_delta: dict,
+    user_id: int,
+) -> str:
     """
-    Returns explainable monthly AI review.
-
-    Output:
-    {
-      "insight": str,
-      "explanation": {
-        "why": list[str],
-        "data_used": list[str],
-        "confidence": float,
-        "what_would_change_this": list[str]
-      }
-    }
+    Generates a monthly narrative growth story — a letter
+    from a coach who has watched them all month.
     """
 
-    # ---------- MEMORY ----------
-
-
-    if is_circuit_open("jina"):
-        logger.warning("[CIRCUIT OPEN] Vector search unavailable")
-        memory_items = []
-    else:
-        try:
-            with SessionLocal() as db:
-                memory_items = semantic_search(
-                    db=db,
-                    user_id=user_id,
-                    query="previous productivity patterns and improvements",
-                    limit=3
-                )
-            record_success("jina")
-        except Exception as e:
-            record_failure("jina")
-            logger.error(f"[JINA ERROR] {e}")
-            memory_items = []
-
-    
-
-    memory_text = "\n".join(
-        f"- {m}" for m in memory_items if len(m) < 300
-    )
-
-    # ---------- LOAD PROFILE ----------
-    with SessionLocal() as db:
-        profile = get_behavior_profile_cached(db, user_id)
-
-    # ---------- SAFE DEFAULTS ----------
-    tone = "analytical and balanced"
-    style = ""
-    behavior_reasons = []
-    avoidance_rules = []
-    system_confidence = 0.45  # Monthly = lower base confidence
-
-    if profile:
-        # ---------- PREFERENCE LEARNING ----------
-        if profile.get("prefers_encouraging"):
-            tone = "supportive but analytical"
-            behavior_reasons.append(
-                "User responds better to supportive explanations"
-            )
-
-        if profile.get("prefers_actionable"):
-            style = "End with clear, realistic improvement suggestions."
-            behavior_reasons.append(
-                "User prefers actionable takeaways in long-term reviews"
-            )
-
-        # ---------- HARD AVOIDANCE ----------
-        if profile.get("avoid_repeating_failed"):
-            avoidance_rules.append(
-                "Do NOT repeat advice patterns that previously failed"
-            )
-
-        # ---------- OUTCOME-BASED CONFIDENCE ----------
-        total = profile.get("successful_advice", 0) + profile.get("failed_advice", 0)
-        if total >= 3:
-            success_ratio = profile.get("successful_advice", 0) / max(total, 1)
-            system_confidence = round(
-                min(0.85, max(0.3, success_ratio)),
-                2
-            )
-
-            # Outcome safety overrides tone
-            if profile.get("failed_advice", 0) > profile.get("successful_advice", 0):
-                tone = "cautious, neutral, and observational"
-                behavior_reasons.append(
-                    "Previous AI guidance showed mixed or weak outcomes"
-                )
-            else:
-                behavior_reasons.append(
-                    "Previous AI guidance showed positive behavioral outcomes"
-                )
-
-    # ---------- PROMPT ----------
-    constraints_block = (
-        "STRICT CONSTRAINTS:\n" +
-        "\n".join("- " + r for r in avoidance_rules)
-        if avoidance_rules else ""
-    )
+    tone_instruction = TONE_MAP.get(coach_tone, TONE_MAP["balanced"])
 
     prompt = f"""
-You are a {tone} behavioral analyst.
-{style}
+You are Reflecta. Write a personal monthly growth
+story for {user_name}. This should feel like a
+letter from a coach who has watched them all month.
 
-{constraints_block}
+DATA FOR {month_name}:
+Total active days: {active_days}
+Goal completion rate: {completion_rate}%
+Best category: {best_category} ({best_rate}%)
+Weakest category: {worst_category} ({worst_rate}%)
+Dominant emotions: {json.dumps(emotion_summary, default=str)}
+Top excuse this month: {top_excuse}
+Biggest win: {biggest_win}
+Mood trend: {mood_direction}
+Advice effectiveness: {advice_effectiveness}%
+Person model changes: {json.dumps(model_delta, default=str)}
 
-Past insights:
-{memory_text}
+WRITE IN THIS STRUCTURE:
+1. WHO YOU WERE THIS MONTH (2-3 sentences, emotional)
+2. WHAT YOU ACTUALLY DID (facts, honest)
+3. WHAT I NOTICED (patterns they may not see)
+4. THE HONEST TRUTH (the hard thing they need to hear)
+5. NEXT MONTH'S MISSION (one focused directive)
 
-Monthly timeline data:
-{summary}
+Tone: {coach_tone} — {tone_instruction}
+Be specific. Reference real data.
+Make them feel seen, not processed.
+Max 300 words.
+"""
 
-Return STRICT JSON ONLY:
+    return _call_groq(prompt, user_id, "monthly_report")
+
+
+# ─── EXCUSE PATTERN ANALYSIS ────────────────────────────────────
+def analyze_excuse_patterns(user_name: str, excuse_list: list, user_id: int) -> dict:
+    """
+    Analyzes excuse phrases collected over 30 days
+    and identifies root causes and confrontation statements.
+    """
+
+    prompt = f"""
+Analyze these excuse phrases collected over 30 days
+from {user_name}'s journal entries:
+
+Excuses: {json.dumps(excuse_list)}
+
+Identify:
+1. Top 3 recurring excuse themes
+2. What root cause each theme suggests
+3. One honest confrontation statement per theme
+
+Return JSON ONLY:
 {{
-  "insight": "concise but meaningful monthly summary",
-  "explanation": {{
-    "why": ["reason1", "reason2"],
-    "data_used": ["metric1", "metric2"],
-    "confidence": number_between_0_and_1,
-    "what_would_change_this": ["condition1", "condition2"]
-  }}
+  "patterns": [
+    {{
+      "theme": "theme name",
+      "frequency": number,
+      "root_cause": "what this really means",
+      "confrontation": "what coach should say"
+    }}
+  ]
+}}
+"""
+
+    raw = _call_groq(prompt, user_id, "excuse_analysis")
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"patterns": []}
+
+
+# ─── WEEKLY PERSONA CARD ────────────────────────────────────────
+def generate_weekly_persona(
+    user_name: str,
+    week_summary: dict,
+    user_id: int,
+) -> dict:
+    """
+    Generate a weekly persona card with an AI-assigned persona name.
+    """
+
+    prompt = f"""
+Based on this week's data for {user_name}, generate a weekly persona card.
+
+Week data: {json.dumps(week_summary, default=str)}
+
+Return JSON ONLY:
+{{
+  "persona_name": "A creative 2-3 word persona title based on behavior",
+  "coach_says": "One motivational line from the coach"
 }}
 
-Rules:
-- No markdown
-- No prose outside JSON
-- Avoid generic advice
-- Base claims ONLY on provided data
+Persona name examples:
+- "The Determined Grinder" (high effort, some misses)
+- "The Silent Warrior" (low mood but kept going)
+- "The Comeback Kid" (recovered from bad start)
+- "The Flow State" (everything clicked)
+- "The Honest Rester" (low output but self-aware)
 """
+
+    raw = _call_groq(prompt, user_id, "weekly_persona")
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"persona_name": "The Evolving Self", "coach_says": "Keep showing up."}
+
+
+# ─── PRIVATE HELPERS ─────────────────────────────────────────────
+def _get_rag_context(user_id: int, query: str) -> str:
+    """Fetch relevant memories via semantic search."""
+    if is_circuit_open("jina"):
+        logger.warning("[CIRCUIT OPEN] Vector search unavailable")
+        return "No memory context available."
+
+    try:
+        with SessionLocal() as db:
+            memories = semantic_recall(db, user_id, query, limit=3)
+        record_success("jina")
+        return "\n".join(f"- {m}" for m in memories) if memories else "No relevant memories found."
+    except Exception as e:
+        record_failure("jina")
+        logger.error(f"[JINA ERROR] {e}")
+        return "Memory retrieval failed."
+
+
+def _call_groq(prompt: str, user_id: int, context: str) -> str:
+    """Shared GROQ call with circuit breaker and error handling."""
     if is_circuit_open("groq"):
-        logger.warning("[CIRCUIT OPEN] Groq AI unavailable")
-        raise HTTPException(
-            status_code=503,
-            detail="AI service temporarily unavailable. Please try again later."
-        )
+        logger.warning(f"[CIRCUIT OPEN] Groq unavailable for {context}")
+        raise HTTPException(status_code=503, detail="AI service temporarily unavailable.")
 
     try:
         response = client.chat.completions.create(
@@ -361,57 +265,11 @@ Rules:
             temperature=0.3,
         )
         record_success("groq")
-        
-    except Exception as e:
-        record_failure("groq")
-        logger.error(f"[GROQ ERROR] {e}")
-        raise
-
-    try:
         raw = response.choices[0].message.content.strip()
-        review = json.loads(raw)
-
-        # ---------- SCHEMA ENFORCEMENT ----------
-        review.setdefault("insight", "")
-        review.setdefault("explanation", {})
-
-        explanation = review["explanation"]
-        explanation.setdefault("why", [])
-        explanation.setdefault("data_used", list(summary.keys()))
-        explanation.setdefault("confidence", system_confidence)
-        explanation.setdefault("what_would_change_this", [])
-
-        # Inject system-truth reasoning (NOT hallucinated)
-        explanation["why"].extend(behavior_reasons)
-        explanation["why"].append(
-            "Review adapted using learned user preferences and past outcomes"
-        )
-
-        explanation["confidence"] = round(
-            min(1.0, max(0.0, explanation["confidence"])),
-            2
-        )
-
-        return review
+        logger.info(f"[REFLECTA AI] {context} generated for user {user_id}")
+        return raw
 
     except Exception as e:
-        logger.error(
-            f"[MONTHLY AI REVIEW] JSON parse failed for user {user_id}: {e}"
-        )
-
-        # ---------- SAFE FALLBACK ----------
-        return {
-            "insight": "This month showed mixed or inconsistent behavioral patterns.",
-            "explanation": {
-                "why": [
-                    "Monthly data variability was high",
-                    *behavior_reasons
-                ],
-                "data_used": list(summary.keys()) if isinstance(summary, dict) else [],
-                "confidence": system_confidence,
-                "what_would_change_this": [
-                    "More consistent daily tracking",
-                    "At least 10-15 active days in a month"
-                ]
-            }
-        }
+        record_failure("groq")
+        logger.error(f"[GROQ ERROR] {context}: {e}")
+        raise HTTPException(status_code=503, detail="AI service error. Please retry later.")
